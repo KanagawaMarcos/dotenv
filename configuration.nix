@@ -114,7 +114,7 @@
 	discord
 	google-chrome
 	jetbrains.rider
-	vscode
+	vscode-fhs
 	git
 	gnumake
 	buf
@@ -126,6 +126,7 @@
 	vault
 	dbeaver
 	gparted
+	jetbrains.gateway
   #  vim # Do not forget to add an editor to edit configuration.nix! The Nano editor is also installed by default.
   #  wget
   ];
