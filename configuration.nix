@@ -68,6 +68,9 @@
   sound.enable = true;
   hardware.pulseaudio.enable = false;
   security.rtkit.enable = true;
+
+  # Enable touchpad support (enabled default in most desktopManager).
+  # services.xserver.libinput.enable = true;
   services.pipewire = {
     enable = true;
     alsa.enable = true;
@@ -80,10 +83,6 @@
     # no need to redefine it in your config for now)
     #media-session.enable = true;
   };
-
-  # Enable touchpad support (enabled default in most desktopManager).
-  # services.xserver.libinput.enable = true;
-
   # Define a user account. Don't forget to set a password with ‘passwd’.
   users.users.kanagawamarcos = {
     isNormalUser = true;
@@ -93,6 +92,9 @@
       firefox
     #  thunderbird
     ];
+  };
+  services.xserver = {
+    videoDrivers = [ "nvidia" ];
   };
   nix = {
     package = pkgs.nixVersions.stable;
@@ -120,15 +122,19 @@
 	buf
 	protobuf
 	postman
-	dotnet-sdk
+	#dotnet-sdk
+	dotnet-sdk_7
 	docker-compose
 	signal-desktop
 	vault
 	dbeaver
 	gparted
 	jetbrains.gateway
-  #  vim # Do not forget to add an editor to edit configuration.nix! The Nano editor is also installed by default.
-  #  wget
+	azure-cli
+	spotify
+	tree
+	git-lfs
+	wget
   ];
   virtualisation.docker = {
     enable = true;
