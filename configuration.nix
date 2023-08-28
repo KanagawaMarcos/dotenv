@@ -138,6 +138,8 @@
 	emacsPackages.doom
 	emacs
 	megasync
+	roboto
+	fira-code
   ];
   virtualisation.docker = {
     enable = true;
