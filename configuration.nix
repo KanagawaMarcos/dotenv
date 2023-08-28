@@ -135,6 +135,9 @@
 	tree
 	git-lfs
 	wget
+	emacsPackages.doom
+	emacs
+	megasync
   ];
   virtualisation.docker = {
     enable = true;
