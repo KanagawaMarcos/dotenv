@@ -112,6 +112,13 @@
   # List packages installed in system profile. To search, run:
   # $ nix search wget
   environment.systemPackages = with pkgs; [
+	(pkgs.buildFHSUserEnv {
+		name = "linuxfhs";
+		runScript = "bash";
+		targetPkgs = pkgs: with pkgs; [
+			clang_8 gdb llvm_8 valgrind
+		];
+	})
 	vim
 	discord
 	google-chrome
@@ -122,8 +129,8 @@
 	buf
 	protobuf
 	postman
-	#dotnet-sdk
-	dotnet-sdk_7
+	dotnet-sdk
+	#dotnet-sdk_7
 	docker-compose
 	signal-desktop
 	vault
@@ -140,6 +147,9 @@
 	megasync
 	roboto
 	fira-code
+	virtualbox
+	unetbootin
+	fstar
   ];
   virtualisation.docker = {
     enable = true;
@@ -175,5 +185,4 @@
   # Before changing this value read the documentation for this option
   # (e.g. man configuration.nix or on https://nixos.org/nixos/options.html).
   system.stateVersion = "23.05"; # Did you read the comment?
-
 }

@@ -1,0 +1,5 @@
+* Reputation is the echo tha preceeds you in a room and stay after you leave
+** expertise
+** empathy
+** commitment
+** transparency

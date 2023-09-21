@@ -1,0 +1,15 @@
+Predicate Logic
+1. Appointments 
+
+Sgm) 
+An appointment is a point in time made by the "operator" 
+for a given active doctor of at a given place (clinic).
+
+Kanagawa) 
+An appointment is the intention of a person to be 
+(at a place, at a time, with a set of people).
+- The client and company can re-assign the appointment
+- The client and company can cancel the appointment
+- The "With" is a set of person.
+- 
+
