@@ -23,17 +23,31 @@ Hardware: Biostar B550GTA (BIOS 5.17), AMD, NVIDIA GA102 (RTX 30xx),
 
 A reinstalação em UEFI **foi feita e conferida**. Fase 1 concluída.
 
-| Disco | Papel | Layout |
-|---|---|---|
-| `nvme0n1` | **NixOS** | GPT — `p1` ESP 1G vfat → `/boot` · `p2` ext4 952,9G → `/` |
-| `nvme1n1` | **livre, pro Windows** | GPT — ainda com o Ubuntu antigo (ext4 952,8G + ESP 1G) |
+> 🚨 **NUNCA identifique os discos por `nvme0n1` / `nvme1n1`.** Foi
+> observado na prática: entre dois boots da mesma máquina, sem mexer em
+> hardware, os dois NVMe **trocaram de nome**. Num boot o NixOS estava
+> no `nvme0n1`, no seguinte no `nvme1n1`. Os dois têm 953,9G, então não
+> dá pra distinguir nem pelo tamanho. Use sempre PARTUUID/UUID.
 
-> ⚠️ **Os discos saíram invertidos em relação ao plano original.** O
-> plano dizia NixOS no `nvme1n1`; na prática ele foi pro `nvme0n1`.
-> Isso inverte qual disco você desconecta na fase do Windows — veja
-> [Dual boot](#dual-boot-com-windows). Confira sempre com `lsblk`
-> antes de mexer: a numeração NVMe não é estável entre boots, o
-> vínculo confiável é o UUID no `hardware-configuration.nix`.
+Os dois discos são **TEAM TM8FP4001T de 953,9G**, idênticos. O que os
+distingue de verdade é o serial (visível na etiqueta, útil na hora de
+desconectar um pra instalar o Windows) e os UUID:
+
+| Papel | Serial do disco | ESP (PARTUUID / UUID) | root (UUID) |
+|---|---|---|---|
+| **NixOS** | `C1D307021B0901178259` | `a815cf7c-7067-4a6d-898f-3683c6243969` / `4587-D4ED` | `aa310bed-f9ca-4925-86be-78077712946a` (ext4 952,9G) |
+| **Livre — vai virar Windows** | `TPBF2007240030400210` | `ce83cee5-d9a6-48fa-89f4-3f006f6711d3` / `5598-8A92` | `cffb5b77-72ea-4192-853e-a1f9ef523bf9` (Ubuntu 26.04 antigo, ext4 952,8G) |
+
+Para saber qual é qual **no boot atual**:
+
+```bash
+lsblk -o NAME,SIZE,PARTUUID,UUID,FSTYPE,MOUNTPOINT
+findmnt -no SOURCE /     # o disco deste device é o do NixOS
+```
+
+Os UUID acima são os mesmos do `hardware-configuration.nix` — esse é o
+vínculo confiável, e é por isso que o NixOS monta por UUID e não por
+nome de device.
 
 Confirmado na máquina:
 
@@ -44,6 +58,24 @@ Confirmado na máquina:
   (o erro nº1 de instalação UEFI **não** aconteceu)
 
 Falta a fase 2 (Windows) e a 3 (GRUB listando os dois).
+
+### Firmware: a BIOS reescreve a BootOrder
+
+A Biostar B550GTA (AMI) **descarta a ordem de boot gravada na NVRAM**.
+A cada boot ela varre os discos, recria a entrada genérica `UEFI OS`
+apontando para `\EFI\BOOT\BOOTX64.EFI` e a põe no topo.
+
+Comprovado: `efibootmgr -o 0003,0002,0000,0001` gravou, foi confirmado
+lendo a NVRAM de volta, e no reboot seguinte a ordem estava
+`0002,0000,0001,0003` de novo — bootando a geração antiga pelo
+systemd-boot, que ainda ocupava o caminho removível.
+
+Solução na config: `boot.loader.grub.efiInstallAsRemovable = true` +
+`efi.canTouchEfiVariables = false`. Em vez de disputar a ordem, o GRUB
+passa a *ser* o `\EFI\BOOT\BOOTX64.EFI` que a placa já escolhe sozinha.
+
+**Se trocar de placa-mãe**, reverta para `canTouchEfiVariables = true` e
+`efiInstallAsRemovable = false` — o comportamento acima é desta placa.
 
 ---
 
@@ -104,17 +136,19 @@ efibootmgr        # lista entradas EFI -> só funciona em UEFI
 
 ### 4. Particionar em GPT com ESP
 
-**Confira o nome do disco com `lsblk` antes de cada comando.** Os dois
-NVMe têm 953,9G e a numeração `nvme0n1`/`nvme1n1` **não é estável entre
-boots** — foi exatamente por isso que a instalação real acabou no
-`nvme0n1` e não no `nvme1n1` como este passo dizia originalmente.
+**Confira o nome do disco com `lsblk` no boot atual, imediatamente
+antes de particionar.** Os dois NVMe têm 953,9G e a numeração
+`nvme0n1`/`nvme1n1` **não é estável entre boots** — nesta máquina os
+dois já trocaram de nome de um boot pro outro sem nenhuma mudança de
+hardware. Um nome anotado ontem não vale hoje.
 
 ```bash
-lsblk -o NAME,SIZE,PTTYPE,FSTYPE,LABEL
+lsblk -o NAME,SIZE,PARTUUID,UUID,FSTYPE,LABEL
 ```
 
-Identifique o disco pelo conteúdo, não pelo número. Depois exporte o
-nome uma vez só e use a variável — assim não tem como errar no meio:
+Identifique o disco pelo conteúdo/UUID, nunca pelo número. Depois
+exporte o nome uma vez só e use a variável — assim não tem como errar
+no meio da sequência:
 
 ```bash
 DISK=/dev/nvme0n1        # <- ajuste conforme o lsblk acima
@@ -222,21 +256,33 @@ cp /etc/nixos/hardware-configuration.nix ~/dotenv/hardware-configuration.nix
 
 ## Dual boot com Windows
 
-O Windows vai no **`nvme1n1`** (o disco que ainda tem o Ubuntu antigo),
-com **ESP própria**. O NixOS está no `nvme0n1` — **confira com `lsblk`
-antes**, a numeração pode trocar entre boots:
+O Windows vai no disco que ainda tem o **Ubuntu antigo** (root UUID
+`cffb5b77-72ea-…`), com **ESP própria**. O outro é o do NixOS.
+
+**Não confie no nome do device** — ele troca entre boots. Descubra qual
+é qual no momento em que for mexer:
 
 ```bash
-lsblk -o NAME,SIZE,FSTYPE,LABEL,MOUNTPOINT
-# o disco cujo p2 está montado em "/" é o do NixOS — esse é o que SAI da máquina
+findmnt -no SOURCE /          # ex.: /dev/nvme1n1p2
+lsblk -no PKNAME $(findmnt -no SOURCE /)   # -> nome do disco do NIXOS
+```
+
+O disco que esse comando devolver é o que **sai da máquina**. O outro é
+o que recebe o Windows.
+
+Na hora de abrir o gabinete o nome não ajuda em nada, então anote antes
+o **serial** do disco do NixOS e confira na etiqueta:
+
+```bash
+lsblk -dno SERIAL,MODEL /dev/$(lsblk -no PKNAME $(findmnt -no SOURCE /))
 ```
 
 Não compartilhe uma ESP só: o instalador do Windows reescreve a ordem
-de boot EFI e às vezes o `\EFI\Boot\bootx64.efi`. Discos separados
-isolam o estrago.
+de boot EFI e às vezes o `\EFI\Boot\bootx64.efi` — que nesta config é
+justamente onde mora o GRUB (veja `efiInstallAsRemovable` acima).
+Discos separados isolam o estrago.
 
-**Desconecte fisicamente o NVMe do NixOS (`nvme0n1`) antes de instalar
-o Windows.**
+**Desconecte fisicamente o NVMe do NixOS antes de instalar o Windows.**
 O instalador dele escreve o bootloader em qualquer ESP que encontrar;
 com o disco fora da máquina, ele é obrigado a criar a própria. É a
 única forma de garantir isso — não existe opção no instalador pra

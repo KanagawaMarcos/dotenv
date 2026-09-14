@@ -69,13 +69,31 @@ in
   # entradas dentro da ESP que ele mesmo gerencia. Com o Windows num
   # OUTRO disco, com ESP própria, ele NÃO lista o Windows. O GRUB com
   # os-prober acha e faz chainload da ESP do outro disco.
+  #
+  # POR QUE `efiInstallAsRemovable` (e `canTouchEfiVariables = false`):
+  # o firmware AMI desta Biostar B550GTA REESCREVE a BootOrder da NVRAM
+  # a cada boot. Ele varre os discos, recria a entrada genérica
+  # "UEFI OS" -> \EFI\BOOT\BOOTX64.EFI e a coloca no topo, descartando
+  # qualquer ordem gravada com `efibootmgr -o`. Testado: a ordem foi
+  # gravada, confirmada na NVRAM, e voltou sozinha no reboot seguinte.
+  #
+  # Como não dá para vencer a ordem, o GRUB passa a SER o arquivo que
+  # a placa insiste em bootar: `efiInstallAsRemovable` instala o GRUB
+  # em \EFI\BOOT\BOOTX64.EFI (o caminho removível padrão do UEFI).
+  # Isso também sobrescreve a cópia do systemd-boot que estava lá.
+  #
+  # As duas opções são mutuamente exclusivas por assertion do NixOS:
+  # com `efiInstallAsRemovable` o NixOS não mexe mais na NVRAM.
+  # Se um dia trocar de placa-mãe, o certo é voltar para
+  # `canTouchEfiVariables = true` + `efiInstallAsRemovable = false`.
   boot.loader = {
-    efi.canTouchEfiVariables = true;   # Permite gravar a ordem de boot na NVRAM
+    efi.canTouchEfiVariables = false;  # A placa ignora a NVRAM; não adianta escrever
     efi.efiSysMountPoint = "/boot";    # Onde a ESP está montada
 
     grub = {
       enable = true;
       efiSupport = true;
+      efiInstallAsRemovable = true;    # GRUB vai para \EFI\BOOT\BOOTX64.EFI
       device = "nodev";                # Em UEFI é SEMPRE "nodev", nunca o disco
       useOSProber = true;              # Detecta o Windows no outro disco
       configurationLimit = 20;         # Não deixa o menu virar uma lista infinita
