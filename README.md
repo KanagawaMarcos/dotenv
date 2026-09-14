@@ -57,6 +57,20 @@ Confirmado na máquina:
 - `fileSystems."/boot"` presente no `hardware-configuration.nix`
   (o erro nº1 de instalação UEFI **não** aconteceu)
 
+Config do repo aplicada e **bootada com sucesso** (geração 5), tudo
+verificado na máquina:
+
+| Check | Resultado |
+|---|---|
+| Bootloader | GRUB (`BOOT_IMAGE=(hd0,gpt1)`; as vars EFI do systemd-boot sumiram) |
+| NVIDIA | 595.71.05, módulos `nvidia/nvidia_drm/nvidia_modeset/nvidia_uvm` carregados, RTX 3070 Ti (GA102) |
+| Sessão | Pantheon **Wayland** (`pantheon-wayland`), gala usando a GPU NVIDIA |
+| zram | `/dev/zram0`, 31,4G, prio 5 |
+| Serviços | docker, bluetooth, cups, avahi, lightdm — todos `active` |
+| Gaming | steam, gamescope, gamemoded, mangohud, lutris, heroic, godot |
+| Grupos | `wheel uucp lp dialout networkmanager scanner docker` |
+| Restaurados | blender 5.1.1, obs |
+
 Falta a fase 2 (Windows) e a 3 (GRUB listando os dois).
 
 ### Firmware: a BIOS reescreve a BootOrder
@@ -74,8 +88,47 @@ Solução na config: `boot.loader.grub.efiInstallAsRemovable = true` +
 `efi.canTouchEfiVariables = false`. Em vez de disputar a ordem, o GRUB
 passa a *ser* o `\EFI\BOOT\BOOTX64.EFI` que a placa já escolhe sozinha.
 
+#### 🪤 Mudar essa opção exige `--install-bootloader`
+
+Um `nixos-rebuild boot` normal **não** reinstala o GRUB. Ele compara um
+estado guardado em `/boot/grub/state` e, se achar que nada relevante
+mudou, só regenera o `grub.cfg` — `efiInstallAsRemovable` não entra
+nessa comparação. Resultado: a config muda, a geração nova é criada, e
+os binários EFI no disco continuam os antigos. O sintoma é traiçoeiro —
+**todo rebuild parece não ter efeito**, porque a geração nova nunca é a
+que boota.
+
+Como saber qual aconteceu — a diferença na saída do rebuild:
+
+```
+updating GRUB 2 menu...                          <- só isto = NÃO instalou
+installing the GRUB 2 boot loader into /boot...  <- esta linha = instalou
+Installing for x86_64-efi platform.
+```
+
+Ao mexer em qualquer coisa de bootloader, force:
+
+```bash
+sudo nixos-rebuild boot --install-bootloader
+```
+
+E confirme no disco **antes de reiniciar** (o `strings` não está
+instalado; `grep -a` trata binário como texto):
+
+```bash
+sudo grep -a -m1 -oiE 'grub|systemd-boot' /boot/EFI/BOOT/BOOTX64.EFI
+# tem que sair "grub"
+```
+
 **Se trocar de placa-mãe**, reverta para `canTouchEfiVariables = true` e
 `efiInstallAsRemovable = false` — o comportamento acima é desta placa.
+
+#### Sobras do systemd-boot
+
+`\EFI\SYSTEMD\` e `/boot/loader/` continuam na ESP, com as entradas até
+a geração 3. Não atrapalham (nada os invoca), e servem de rede de
+segurança: **F11 → "Linux Boot Manager"** ainda boota a geração 3 se o
+GRUB quebrar. Só limpe quando tiver certeza de que não vai precisar.
 
 ---
 
@@ -385,7 +438,14 @@ Gotchas que dependem de você, **no Windows**:
 
 - `plasma6` → `pantheon`; `sddm` → `lightdm`.
 - `KWIN_DRM_USE_EGL_STREAMS` removido (era específico do KWin).
-- `NIXOS_OZONE_WL` continua desligado — Pantheon é sessão X11, e era
-  justamente essa variável que quebrava o kdenlive.
+- ⚠️ **O Pantheon do 26.05 sobe em Wayland, não em X11.** A suposição
+  original (X11) estava errada; medido na máquina com
+  `loginctl show-session … -p Type` → `Type=wayland`,
+  `Desktop=pantheon-wayland`. O `services.xserver.enable` continua
+  necessário (LightDM, xkb, Xwayland), mas a sessão é Wayland — e
+  funciona bem com o NVIDIA 595 + módulo aberto.
+- `NIXOS_OZONE_WL` continua desligado. Não é por ser X11 (não é): é
+  porque essa variável quebrava o kdenlive na config antiga. Os apps
+  Electron rodam via Xwayland sem problema.
 - `kate` e `isoimagewriter` mantidos: são apps Qt e rodam normal no Pantheon.
 - `wl-clipboard` adicionado ao lado do `xclip`.

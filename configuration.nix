@@ -175,9 +175,18 @@ in
   # (O SDDM do KDE foi removido.)
   services.xserver.displayManager.lightdm.enable = true;
 
-  # Pantheon é uma sessão X11 — combina bem com o driver NVIDIA
-  # proprietário e evita justamente os problemas de Wayland+NVIDIA
-  # que motivaram os workarounds da config antiga.
+  # ATENÇÃO: o Pantheon do 26.05 sobe em WAYLAND, não em X11.
+  # Verificado na máquina:
+  #   loginctl show-session ... -p Type -p Desktop
+  #   -> Type=wayland  Desktop=pantheon-wayland
+  # O `services.xserver.enable` acima continua necessário (LightDM,
+  # xkb e Xwayland dependem dele), mas a sessão em si é Wayland.
+  #
+  # Funciona bem com o driver NVIDIA 595 + módulo aberto + modesetting:
+  # a GPU está ativa e o gala (compositor do Pantheon) usa a NVIDIA
+  # direto — confirmado no `nvidia-smi`. Se um dia precisar mesmo de
+  # X11, force com `services.displayManager.defaultSession = "pantheon"`
+  # (a sessão Wayland é "pantheon-wayland").
 
   # Teclado do console (TTY)
   console.keyMap = "br-abnt2";
@@ -431,8 +440,12 @@ in
 
     # Notas da config antiga, mantidas por contexto:
     # NIXOS_OZONE_WL = "1";
-    #   -> só faz sentido em sessão Wayland. Pantheon roda X11, então
-    #      fica desativado (era o que quebrava o kdenlive antes).
+    #   -> faz apps Electron/Chromium rodarem em Wayland nativo. A
+    #      sessão AQUI É WAYLAND (ver nota no bloco do Pantheon), então
+    #      ligar isto é tecnicamente possível — mas segue desativado de
+    #      propósito: era justamente esta variável que quebrava o
+    #      kdenlive na config antiga. Os apps Electron rodam via
+    #      Xwayland, que funciona. Só mexa se tiver um motivo.
     # KWIN_DRM_USE_EGL_STREAMS = "0";
     #   -> era específico do KWin/KDE. Não existe mais razão no Pantheon.
   };
