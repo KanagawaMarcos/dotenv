@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(nixos-version)",
+      "Bash(lsblk -o NAME,SIZE,PTTYPE,FSTYPE,LABEL,MOUNTPOINT)",
+      "Bash(findmnt /boot)",
+      "Bash(efibootmgr -v)",
+      "Read(//etc/nixos/**)",
+      "Read(//boot/**)",
+      "Bash(lsblk -o NAME,SIZE,PARTTYPENAME,FSTYPE,LABEL)",
+      "Bash(lsblk -f)",
+      "Read(//nix/store/**)",
+      "Bash(git config *)",
+      "Bash(sed -n '/environment.systemPackages/,/^  \\\\];/p' /etc/nixos/configuration.nix)",
+      "Bash(sed -n '/packages = with pkgs/,/^    \\\\];/p' /etc/nixos/configuration.nix)",
+      "Bash(git -c user.name=\"Marcos Kanagawa\" -c user.email=\"marcos@kanagawa.io\" add -A)",
+      "Bash(git -c user.name=\"Marcos Kanagawa\" -c user.email=\"marcos@kanagawa.io\" commit -q -F -)"
+    ]
+  }
+}

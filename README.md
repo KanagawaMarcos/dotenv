@@ -2,12 +2,10 @@
 
 Config do sistema. Atualizada em **2026-09-14**.
 
-> ⚠️ **Esta config assume instalação em UEFI.** Ela foi escrita para a
-> reinstalação planejada (apagar tudo, instalar NixOS em UEFI, depois
-> dual boot com Windows). Se você colar isto numa instalação
-> BIOS/Legacy, **a máquina não dá boot.**
+> ⚠️ **Esta config assume instalação em UEFI.** Se você colar isto numa
+> instalação BIOS/Legacy, **a máquina não dá boot.**
 
-| | Máquina antiga | Alvo (pós-reinstalação) |
+| | Máquina antiga | Atual |
 |---|---|---|
 | NixOS | 25.11 | **26.05 (Yarara)** |
 | Boot | UEFI + systemd-boot | **UEFI + GRUB** (`device = "nodev"`) |
@@ -21,20 +19,43 @@ Hardware: Biostar B550GTA (BIOS 5.17), AMD, NVIDIA GA102 (RTX 30xx),
 
 ---
 
-## Plano
+## Estado atual — instalado em 2026-09-14 ✅
 
-Os **dois** discos vão ser apagados. Backup já está no Google Drive.
+A reinstalação em UEFI **foi feita e conferida**. Fase 1 concluída.
 
-| Disco | Antes | Depois |
+| Disco | Papel | Layout |
 |---|---|---|
-| `nvme1n1` | NixOS atual (MBR, legacy) | **NixOS** — GPT, ESP 1G + root ext4 |
-| `nvme0n1` | Ubuntu (GPT + ESP 1G + ext4 952G) | **Windows** — ESP própria |
+| `nvme0n1` | **NixOS** | GPT — `p1` ESP 1G vfat → `/boot` · `p2` ext4 952,9G → `/` |
+| `nvme1n1` | **livre, pro Windows** | GPT — ainda com o Ubuntu antigo (ext4 952,8G + ESP 1G) |
+
+> ⚠️ **Os discos saíram invertidos em relação ao plano original.** O
+> plano dizia NixOS no `nvme1n1`; na prática ele foi pro `nvme0n1`.
+> Isso inverte qual disco você desconecta na fase do Windows — veja
+> [Dual boot](#dual-boot-com-windows). Confira sempre com `lsblk`
+> antes de mexer: a numeração NVMe não é estável entre boots, o
+> vínculo confiável é o UUID no `hardware-configuration.nix`.
+
+Confirmado na máquina:
+
+- `/sys/firmware/efi/efivars` existe → **UEFI de verdade**
+- `nixos-version` → `26.05.9592 (Yarara)`, `system.stateVersion = "26.05"`
+- ESP tipo *EFI System*, vfat, montada em `/boot` (40M de 1022M usados)
+- `fileSystems."/boot"` presente no `hardware-configuration.nix`
+  (o erro nº1 de instalação UEFI **não** aconteceu)
+
+Falta a fase 2 (Windows) e a 3 (GRUB listando os dois).
+
+---
+
+## Plano (histórico)
+
+Os **dois** discos foram apagados. Backup no Google Drive.
 
 Ordem das fases:
 
-1. **NixOS em UEFI** no `nvme1n1` → passos 1–7 abaixo
-2. **Windows** no `nvme0n1`, com o NVMe do NixOS **desconectado**
-3. **Reconectar** e rodar `nixos-rebuild boot` pro GRUB listar os dois
+1. ✅ **NixOS em UEFI** → passos 1–7 abaixo
+2. ⬜ **Windows** no outro disco, com o NVMe do NixOS **desconectado**
+3. ⬜ **Reconectar** e rodar `nixos-rebuild boot` pro GRUB listar os dois
 
 Instalar o NixOS primeiro é de propósito: o instalador do Windows
 reescreve a ordem de boot EFI, então é melhor ele vir depois — e com o
@@ -83,24 +104,28 @@ efibootmgr        # lista entradas EFI -> só funciona em UEFI
 
 ### 4. Particionar em GPT com ESP
 
-O NixOS vai no `nvme1n1`. **Confira o nome com `lsblk` antes** — os
-dois discos têm 953,9G e é fácil trocar um pelo outro. O do NixOS é o
-que hoje está em `dos`/MBR com label `root`:
+**Confira o nome do disco com `lsblk` antes de cada comando.** Os dois
+NVMe têm 953,9G e a numeração `nvme0n1`/`nvme1n1` **não é estável entre
+boots** — foi exatamente por isso que a instalação real acabou no
+`nvme0n1` e não no `nvme1n1` como este passo dizia originalmente.
 
 ```bash
 lsblk -o NAME,SIZE,PTTYPE,FSTYPE,LABEL
-# nvme1n1  953,9G  dos  ...  root   <- NixOS vai aqui
-# nvme0n1  953,9G  gpt  ...         <- fica pro Windows
 ```
 
-```bash
-parted /dev/nvme1n1 -- mklabel gpt
-parted /dev/nvme1n1 -- mkpart ESP  fat32 1MB 1GB
-parted /dev/nvme1n1 -- set 1 esp on
-parted /dev/nvme1n1 -- mkpart root ext4  1GB 100%
+Identifique o disco pelo conteúdo, não pelo número. Depois exporte o
+nome uma vez só e use a variável — assim não tem como errar no meio:
 
-mkfs.fat -F 32 -n BOOT /dev/nvme1n1p1
-mkfs.ext4 -L nixos     /dev/nvme1n1p2
+```bash
+DISK=/dev/nvme0n1        # <- ajuste conforme o lsblk acima
+
+parted $DISK -- mklabel gpt
+parted $DISK -- mkpart ESP  fat32 1MB 1GB
+parted $DISK -- set 1 esp on
+parted $DISK -- mkpart root ext4  1GB 100%
+
+mkfs.fat -F 32 -n BOOT ${DISK}p1
+mkfs.ext4 -L nixos     ${DISK}p2
 ```
 
 `mklabel gpt` é o que zera a tabela MBR antiga. ESP de 1GB é folgada
@@ -160,7 +185,7 @@ passwd kanagawamarcos               # a senha do usuário não vem da config
 git config --global user.name  "Marcos Kanagawa"
 git config --global user.email "marcos@kanagawa.io"
 
-git clone git@github.com:KanagawaMarcos/dotenv.git ~/git/dotenv
+git clone git@github.com:KanagawaMarcos/dotenv.git ~/dotenv
 ```
 
 O que **não** é declarativo e precisa ser refeito na mão:
@@ -182,18 +207,36 @@ sudo nixos-rebuild switch   # confirma
 ```
 
 **Não copie `hardware-configuration.nix`.** Ele é gerado pelo
-`nixos-generate-config` e tem os UUID dos discos desta máquina. A cópia
-aqui é só backup — a da reinstalação vai ser diferente.
+`nixos-generate-config` e tem os UUID dos discos. A cópia no repo é só
+backup — está sincronizada com a máquina atual (instalação de
+2026-09-14, root `aa310bed…`, ESP `4587-D4ED`), mas numa reinstalação
+os UUID mudam e o arquivo bom é sempre o gerado na hora.
+
+Para atualizar o backup depois de mexer em disco:
+
+```bash
+cp /etc/nixos/hardware-configuration.nix ~/dotenv/hardware-configuration.nix
+```
 
 ---
 
 ## Dual boot com Windows
 
-O Windows vai no `nvme0n1`, com **ESP própria**. Não compartilhe uma
-ESP só: o instalador do Windows reescreve a ordem de boot EFI e às
-vezes o `\EFI\Boot\bootx64.efi`. Discos separados isolam o estrago.
+O Windows vai no **`nvme1n1`** (o disco que ainda tem o Ubuntu antigo),
+com **ESP própria**. O NixOS está no `nvme0n1` — **confira com `lsblk`
+antes**, a numeração pode trocar entre boots:
 
-**Desconecte fisicamente o NVMe do NixOS antes de instalar o Windows.**
+```bash
+lsblk -o NAME,SIZE,FSTYPE,LABEL,MOUNTPOINT
+# o disco cujo p2 está montado em "/" é o do NixOS — esse é o que SAI da máquina
+```
+
+Não compartilhe uma ESP só: o instalador do Windows reescreve a ordem
+de boot EFI e às vezes o `\EFI\Boot\bootx64.efi`. Discos separados
+isolam o estrago.
+
+**Desconecte fisicamente o NVMe do NixOS (`nvme0n1`) antes de instalar
+o Windows.**
 O instalador dele escreve o bootloader em qualquer ESP que encontrar;
 com o disco fora da máquina, ele é obrigado a criar a própria. É a
 única forma de garantir isso — não existe opção no instalador pra
@@ -279,8 +322,18 @@ Gotchas que dependem de você, **no Windows**:
 
 ## Removido
 
-- Bloco `services.logind.settings.Login` com `HandleLidSwitch`. Esta
-  máquina é desktop (`chassis_type = 3`) — não tem tampa. Era config morta.
+- Bloco `services.logind.settings.Login` com
+  `IdleAction = "ignore"` / `IdleActionSec = "infinity"`. Redundante: é
+  exatamente o padrão do systemd, então o comportamento não muda. Se um
+  dia a máquina começar a suspender sozinha, é aqui que volta.
+- Pacotes que estavam na config antiga e **não** foram migrados:
+  `blender`, `obs-studio`, `unetbootin`, `gimp-with-plugins`,
+  `cargo`, `rustfmt`, `stdenv.cc.cc`. Alguns têm substituto na config
+  nova (`kdePackages.isoimagewriter` no lugar do unetbootin; `krita` no
+  lugar do gimp; `cargo`/`rustfmt` vêm do `rustup`). Os que não têm —
+  `blender` e `obs-studio` — foram perda real; adicione de volta em
+  `users.users.kanagawamarcos.packages` se fizer falta.
+- `inkscape-with-extensions` virou `inkscape` puro (sem as extensões).
 
 ## Adaptações KDE → Pantheon
 

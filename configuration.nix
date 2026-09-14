@@ -333,6 +333,8 @@ in
 
       # === Media ===
       lmms
+      blender                            # 3D; usa a GPU NVIDIA (CUDA/OptiX)
+      obs-studio                         # Captura/streaming
 
       # === Communication ===
       thunderbird discord telegram-desktop signal-desktop
