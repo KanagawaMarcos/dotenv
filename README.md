@@ -21,6 +21,27 @@ Hardware: Biostar B550GTA (BIOS 5.17), AMD, NVIDIA GA102 (RTX 30xx),
 
 ---
 
+## Plano
+
+Os **dois** discos vão ser apagados. Backup já está no Google Drive.
+
+| Disco | Antes | Depois |
+|---|---|---|
+| `nvme1n1` | NixOS atual (MBR, legacy) | **NixOS** — GPT, ESP 1G + root ext4 |
+| `nvme0n1` | Ubuntu (GPT + ESP 1G + ext4 952G) | **Windows** — ESP própria |
+
+Ordem das fases:
+
+1. **NixOS em UEFI** no `nvme1n1` → passos 1–7 abaixo
+2. **Windows** no `nvme0n1`, com o NVMe do NixOS **desconectado**
+3. **Reconectar** e rodar `nixos-rebuild boot` pro GRUB listar os dois
+
+Instalar o NixOS primeiro é de propósito: o instalador do Windows
+reescreve a ordem de boot EFI, então é melhor ele vir depois — e com o
+disco do NixOS fora da máquina, onde não tem o que estragar.
+
+---
+
 ## Instalação em UEFI — o ponto crítico
 
 O modo de boot é decidido **no pendrive**, não no instalador. Se o
@@ -62,8 +83,15 @@ efibootmgr        # lista entradas EFI -> só funciona em UEFI
 
 ### 4. Particionar em GPT com ESP
 
-Vou usar `nvme1n1` como exemplo (o disco do NixOS). **Confira o nome
-com `lsblk` antes** — errar de disco aqui apaga o outro.
+O NixOS vai no `nvme1n1`. **Confira o nome com `lsblk` antes** — os
+dois discos têm 953,9G e é fácil trocar um pelo outro. O do NixOS é o
+que hoje está em `dos`/MBR com label `root`:
+
+```bash
+lsblk -o NAME,SIZE,PTTYPE,FSTYPE,LABEL
+# nvme1n1  953,9G  dos  ...  root   <- NixOS vai aqui
+# nvme0n1  953,9G  gpt  ...         <- fica pro Windows
+```
 
 ```bash
 parted /dev/nvme1n1 -- mklabel gpt
@@ -119,7 +147,29 @@ Depois do boot, a confirmação final:
 
 ```bash
 [ -d /sys/firmware/efi ] && echo "rodando em UEFI ✅"
+efibootmgr -v                       # deve listar a entrada do NixOS
+lsblk -o NAME,PTTYPE,FSTYPE,MOUNTPOINT   # /boot vfat montado
+nvidia-smi                          # driver proprietário no ar
 ```
+
+### 8. Ajustes pós-instalação
+
+```bash
+passwd kanagawamarcos               # a senha do usuário não vem da config
+
+git config --global user.name  "Marcos Kanagawa"
+git config --global user.email "marcos@kanagawa.io"
+
+git clone git@github.com:KanagawaMarcos/dotenv.git ~/git/dotenv
+```
+
+O que **não** é declarativo e precisa ser refeito na mão:
+
+- Senha do usuário (`passwd`)
+- Chave SSH do GitHub (`~/.ssh/`)
+- Proton-GE via `protonup-ng` (vai pra `~/.steam/root/compatibilitytools.d`)
+- Login/biblioteca da Steam, contas do Discord/Telegram/Signal
+- Perfis e impressoras do OrcaSlicer/BambuStudio
 
 ---
 
@@ -139,10 +189,17 @@ aqui é só backup — a da reinstalação vai ser diferente.
 
 ## Dual boot com Windows
 
-O Windows vai no **outro disco** (`nvme0n1`), com **ESP própria**. Não
-compartilhe uma ESP só: o instalador do Windows reescreve a ordem de
-boot EFI e às vezes o `\EFI\Boot\bootx64.efi`. Discos separados
-isolam o estrago.
+O Windows vai no `nvme0n1`, com **ESP própria**. Não compartilhe uma
+ESP só: o instalador do Windows reescreve a ordem de boot EFI e às
+vezes o `\EFI\Boot\bootx64.efi`. Discos separados isolam o estrago.
+
+**Desconecte fisicamente o NVMe do NixOS antes de instalar o Windows.**
+O instalador dele escreve o bootloader em qualquer ESP que encontrar;
+com o disco fora da máquina, ele é obrigado a criar a própria. É a
+única forma de garantir isso — não existe opção no instalador pra
+escolher onde vai a ESP.
+
+Depois de instalar, reconecte o disco do NixOS.
 
 É por isso que a config usa **GRUB e não systemd-boot**: o
 systemd-boot só lista entradas da ESP que ele gerencia, então não
