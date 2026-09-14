@@ -14,27 +14,12 @@
   boot.extraModulePackages = [ ];
 
   fileSystems."/" =
-    { device = "/dev/disk/by-uuid/aa7f0132-03c4-4f4d-8057-19df9e408e17";
+    { device = "/dev/disk/by-uuid/18f3c0cc-137f-42ea-83b9-c0b7ed7fa562";
       fsType = "ext4";
     };
 
-  fileSystems."/boot" =
-    { device = "/dev/disk/by-uuid/D8A7-9B3E";
-      fsType = "vfat";
-      options = [ "fmask=0077" "dmask=0077" ];
-    };
-
-  swapDevices =
-    [ { device = "/dev/disk/by-uuid/ee6ffc9d-9065-4b54-9ad9-d1d734ff6559"; }
-    ];
+  swapDevices = [ ];
 
   nixpkgs.hostPlatform = lib.mkDefault "x86_64-linux";
   hardware.cpu.amd.updateMicrocode = lib.mkDefault config.hardware.enableRedistributableFirmware;
-  # ------------------------------
-  # Activate BLuetooth
-  hardware.bluetooth = {
-	enable = true;
-	powerOnBoot = true;
-  };
-  hardware.enableRedistributableFirmware = true;  
 }

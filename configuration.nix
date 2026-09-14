@@ -1,7 +1,9 @@
-
 # ============================================================
 # NixOS main system configuration
 # File: /etc/nixos/configuration.nix
+#
+# Máquina: nixos (AMD + NVIDIA GA102 / RTX 30xx)
+# NixOS 26.05 (Yarara) — Pantheon
 #
 # Este arquivo define TODO o estado do sistema operacional:
 # boot, drivers, desktop, usuários, pacotes, serviços, etc.
@@ -10,8 +12,42 @@
 #   sudo nixos-rebuild switch
 # ============================================================
 
-{ config, pkgs, ... }:
+{ config, pkgs, lib, ... }:
 
+let
+  # ==========================================================
+  # HELPER: fix de OpenGL para os slicers 3D
+  # ==========================================================
+  # Histórico: GBM_BACKEND="dri" global fazia o desktop crashar.
+  # A anotação antiga dizia "should be passed only to bambu lab
+  # and orca slicer" — é exatamente isso que este wrapper faz:
+  # aplica a variável SÓ nesses dois apps, sem poluir a sessão.
+  #
+  # Se algum dia quebrar, basta trocar `wrapGL pkgs.orca-slicer "orca-slicer"`
+  # de volta por `orca-slicer` na lista de pacotes.
+  wrapGL = pkg: exe: pkgs.symlinkJoin {
+    name = "${lib.getName pkg}-glfix";
+    paths = [ pkg ];
+    nativeBuildInputs = [ pkgs.makeWrapper ];
+    postBuild = ''
+      wrapProgram $out/bin/${exe} \
+        --set GBM_BACKEND dri
+        # Se ainda der tela branca, descomente também:
+        #   --set WEBKIT_DISABLE_COMPOSITING_MODE 1 \
+        #   --set __GL_THREADED_OPTIMIZATIONS 0
+
+      # Os .desktop herdados apontam para o store path original,
+      # o que burlaria o wrapper ao abrir pelo menu. Reescreve.
+      for f in $out/share/applications/*.desktop; do
+        [ -e "$f" ] || continue
+        real=$(readlink -f "$f")
+        rm "$f"
+        substitute "$real" "$f" \
+          --replace-quiet "${pkg}/bin/${exe}" "$out/bin/${exe}"
+      done
+    '';
+  };
+in
 {
   # ==========================================================
   # IMPORTS
@@ -23,19 +59,32 @@
   ];
 
   # ==========================================================
-  # BOOTLOADER (UEFI + systemd-boot + GRUB compat)
+  # BOOTLOADER  —  UEFI + GRUB (preparado para dual boot Windows)
   # ==========================================================
+  # Requer que o NixOS tenha sido instalado em modo UEFI, com uma
+  # partição ESP (FAT32, tipo EF00) montada em /boot.
+  # Confira com:  [ -d /sys/firmware/efi ] && echo UEFI || echo LEGACY
+  #
+  # Por que GRUB e não systemd-boot: o systemd-boot só enxerga
+  # entradas dentro da ESP que ele mesmo gerencia. Com o Windows num
+  # OUTRO disco, com ESP própria, ele NÃO lista o Windows. O GRUB com
+  # os-prober acha e faz chainload da ESP do outro disco.
   boot.loader = {
-    systemd-boot.enable = true;           # Bootloader padrão do NixOS
-    efi.canTouchEfiVariables = true;       # Permite gravar variáveis EFI
+    efi.canTouchEfiVariables = true;   # Permite gravar a ordem de boot na NVRAM
+    efi.efiSysMountPoint = "/boot";    # Onde a ESP está montada
 
     grub = {
-      devices = [ "nodev" ];              # Necessário para UEFI puro
-      efiSupport = true;                  # Suporte a EFI
-      useOSProber = true;                 # Detecta outros SOs
-      theme = "light";                    # Tema visual do GRUB
+      enable = true;
+      efiSupport = true;
+      device = "nodev";                # Em UEFI é SEMPRE "nodev", nunca o disco
+      useOSProber = true;              # Detecta o Windows no outro disco
+      configurationLimit = 20;         # Não deixa o menu virar uma lista infinita
     };
   };
+
+  # Windows grava o RTC em horário local; o Linux usa UTC. Sem isto o
+  # relógio pula 3h cada vez que você troca de SO.
+  time.hardwareClockInLocalTime = true;
 
   # ==========================================================
   # NETWORKING
@@ -50,6 +99,18 @@
     # proxy.default = "http://user:password@proxy:port/";
     # proxy.noProxy = "127.0.0.1,localhost,internal.domain";
   };
+
+  # ==========================================================
+  # BLUETOOTH
+  # ==========================================================
+  # Estava editado à mão dentro do hardware-configuration.nix, que é
+  # SOBRESCRITO por `nixos-generate-config`. Movido para cá.
+  hardware.bluetooth = {
+    enable = true;
+    powerOnBoot = true;
+  };
+
+  hardware.enableRedistributableFirmware = true;
 
   # ==========================================================
   # TIMEZONE & LOCALE
@@ -73,10 +134,10 @@
   };
 
   # ==========================================================
-  # DISPLAY SERVER & DESKTOP
+  # DISPLAY SERVER & DESKTOP  (KDE Plasma 6  ->  Pantheon)
   # ==========================================================
   services.xserver = {
-    enable = true;                        # Ativa X11 (necessário mesmo com Wayland)
+    enable = true;                        # Ativa X11
 
     # Layout de teclado no X11
     xkb = {
@@ -84,35 +145,48 @@
       variant = "";
     };
 
-    # Driver de vídeo
+    # Driver de vídeo proprietário NVIDIA
     videoDrivers = [ "nvidia" ];
   };
 
-  # KDE Plasma 6
-  services.desktopManager.plasma6.enable = true;
+  # Pantheon (elementary OS) — substitui o KDE Plasma 6 da config antiga.
+  services.desktopManager.pantheon.enable = true;
 
-  # Display Manager (login gráfico)
-  services.displayManager.sddm = {
-    enable = true;
-    wayland.enable = false;                # Sessão Wayland ativa
-  };
+  # Display Manager. O módulo do Pantheon já ativa o LightDM com o
+  # greeter do Pantheon; mantido explícito como o instalador gerou.
+  # (O SDDM do KDE foi removido.)
+  services.xserver.displayManager.lightdm.enable = true;
+
+  # Pantheon é uma sessão X11 — combina bem com o driver NVIDIA
+  # proprietário e evita justamente os problemas de Wayland+NVIDIA
+  # que motivaram os workarounds da config antiga.
 
   # Teclado do console (TTY)
   console.keyMap = "br-abnt2";
 
   # ==========================================================
-  # NVIDIA GPU
+  # NVIDIA GPU  —  ATENÇÃO: `open` MUDOU DE false PARA true
   # ==========================================================
+  # A GPU desta máquina é uma GA102 (Ampere, RTX 30xx) e o driver
+  # do NixOS 26.05 é o 595.x.
+  #
+  # A partir do ramo 580, a NVIDIA parou de dar suporte ao módulo
+  # de kernel PROPRIETÁRIO em GPUs Turing e mais novas — só o módulo
+  # aberto funciona. Manter `open = false` (como na config antiga,
+  # que rodava em driver mais velho) deixaria a GPU sem módulo.
+  #
+  # Se um dia voltar para uma GPU Pascal/Maxwell, volte a false.
   hardware.nvidia = {
-    open = false;                          # Driver open kernel module
-    modesetting.enable = true;            # Necessário para Wayland
+    package = config.boot.kernelPackages.nvidiaPackages.stable;
+    open = true;                          # Módulo de kernel aberto (obrigatório em Ampere+ no 580+)
+    modesetting.enable = true;            # Necessário para KMS / sessões modernas
     nvidiaSettings = true;                # Painel nvidia-settings
     powerManagement.enable = false;
   };
 
   hardware.graphics = {
     enable = true;
-    enable32Bit = true;
+    enable32Bit = true;                   # Necessário para Steam/Proton/Wine
   };
 
   # ==========================================================
@@ -134,22 +208,54 @@
   # ==========================================================
   services.power-profiles-daemon.enable = false;
 
-  services.logind.settings.Login = {
-    HandleLidSwitch = "ignore";                 # Não suspende ao fechar tampa
-    HandleLidSwitchExternalPower = "ignore";
-    HandleLidSwitchDocked = "ignore";
-  };
+  # NOTA: a config antiga tinha um bloco services.logind.settings.Login
+  # com HandleLidSwitch = "ignore". Esta máquina é um DESKTOP
+  # (chassis_type = 3, Biostar B550GTA) — não tem tampa. Era config
+  # morta, foi removida. Se um dia isto virar notebook, era:
+  #
+  # services.logind.settings.Login = {
+  #   HandleLidSwitch = "ignore";
+  #   HandleLidSwitchExternalPower = "ignore";
+  #   HandleLidSwitchDocked = "ignore";
+  # };
+
+  # ==========================================================
+  # DUAL BOOT: acesso ao disco do Windows
+  # ==========================================================
+  # Permite montar as partições NTFS do Windows (leitura e escrita).
+  # LEMBRE de desligar o "Fast Startup" no Windows — com ele ligado o
+  # NTFS fica marcado como sujo/hibernado e só monta como read-only.
+  boot.supportedFilesystems = [ "ntfs" ];
+
+  # ==========================================================
+  # SWAP  (NOVO)
+  # ==========================================================
+  # A instalação antiga tinha partição de swap; esta NÃO tem
+  # (swapDevices = [ ] no hardware-configuration.nix). Compilar
+  # no Nix, rodar Android Studio/Rider ou fatiar STL grande sem
+  # nenhuma swap é convite a OOM. zram resolve sem reparticionar.
+  # Para remover: apague as 2 linhas abaixo.
+  zramSwap.enable = true;
+  zramSwap.memoryPercent = 50;
 
   # ==========================================================
   # PRINTING, SCANNING & NETWORK DISCOVERY
   # ==========================================================
   services.printing = {
     enable = true;                        # CUPS
-    drivers = [ ];
+
+    # CORREÇÃO: os drivers Epson estavam na lista de pacotes do
+    # usuário, onde o CUPS NÃO os enxerga. Driver de impressora
+    # precisa estar aqui para o daemon achar o PPD/filtro.
+    drivers = with pkgs; [
+      epson_201207w
+      epson-escpr
+      epson-escpr2
+    ];
   };
 
   services.avahi = {
-    enable = true;                        # mDNS / zeroconf
+    enable = true;                        # mDNS / zeroconf (descoberta de impressora e scanner na rede)
     nssmdns4 = true;
     openFirewall = true;
   };
@@ -160,6 +266,16 @@
   };
 
   # ==========================================================
+  # VIRTUALIZAÇÃO  (NOVO)
+  # ==========================================================
+  # O pacote `docker` estava na lista do usuário, mas o daemon nunca
+  # foi ativado — ou seja, o CLI existia e não funcionava. Ativado.
+  #
+  # NOTA DE SEGURANÇA: estar no grupo "docker" equivale a root.
+  # Se preferir evitar, remova "docker" de extraGroups e use sudo.
+  virtualisation.docker.enable = true;
+
+  # ==========================================================
   # NIX & COMPATIBILITY
   # ==========================================================
   programs.nix-ld.enable = true;          # Executar binários não-Nix
@@ -168,6 +284,13 @@
     "nix-command"
     "flakes"
   ];
+
+  # Limpeza automática do store (opcional — descomente se quiser)
+  # nix.gc = {
+  #   automatic = true;
+  #   dates = "weekly";
+  #   options = "--delete-older-than 30d";
+  # };
 
   nixpkgs.config.allowUnfree = true;      # Permite software proprietário
 
@@ -181,7 +304,9 @@
     extraGroups = [
       "networkmanager"                   # Controle de rede
       "wheel"                            # sudo
-      "uucp" "dialout"                   # Serial / Arduino
+      "uucp" "dialout"                   # Serial / Arduino / K40
+      "scanner" "lp"                     # Scanner e impressora
+      "docker"                           # ATENÇÃO: equivale a root
     ];
 
     packages = with pkgs; [
@@ -195,6 +320,7 @@
       pciutils
       mesa-demos
       alsa-utils
+
       # === Android / Embedded ===
       android-studio android-studio-tools
       arduino-ide
@@ -216,25 +342,26 @@
       mangohud protonup-ng lutris heroic bottles godot
 
       # === Utilities ===
-      xclip mission-center
+      xclip
+      wl-clipboard                       # Pantheon/GTK: complemento ao xclip
+      mission-center
       transmission_4
       bruno
       libreoffice
       scribus
 
-      # === KDE ===
+      # === Editor / Utils que vieram do KDE ===
+      # Continuam funcionando no Pantheon (são só apps Qt).
       kdePackages.kate
       kdePackages.isoimagewriter
 
-      # === Epson ===
-      epson_201207w
-      epson-escpr
-      epson-escpr2
-
+      # === Impressão 3D / Laser ===
       meerk40t
+      (wrapGL orca-slicer  "orca-slicer")   # ver helper `wrapGL` no topo
+      (wrapGL bambu-studio "bambu-studio")  # ver helper `wrapGL` no topo
+
+      # === Outros ===
       ollama
-      orca-slicer
-      bambu-studio 
       peazip
       krita
       inkscape
@@ -246,7 +373,7 @@
   # ==========================================================
   programs.steam = {
     enable = true;
-    gamescopeSession.enable = true;
+    gamescopeSession.enable = true;       # Sessão gamescope no LightDM
   };
 
   programs.gamemode.enable = true;
@@ -257,27 +384,44 @@
   programs.firefox.enable = true;
 
   # ==========================================================
+  # SYSTEM PACKAGES
+  # ==========================================================
+  environment.systemPackages = with pkgs; [
+    vim
+    wget
+    git
+  ];
+
+  # ==========================================================
   # ENVIRONMENT VARIABLES
   # ==========================================================
   environment.variables = {
-    GTK_ENABLE_PRIMARY_PASTE = "false";   # Tentativa de desativar middle-click paste
-    #GBM_BACKEND = "dri"; if global crashs kde, should be passed only to bambu lab and orca slicer
+    # Desativa o colar com botão do meio. No Pantheon (GTK) isso
+    # pesa ainda mais do que pesava no KDE.
+    GTK_ENABLE_PRIMARY_PASTE = "false";
 
+    # GBM_BACKEND="dri" NÃO vai aqui — como global ele derrubava o
+    # desktop. Agora é aplicado só ao orca-slicer/bambu-studio pelo
+    # helper `wrapGL` lá em cima.
   };
 
   environment.sessionVariables = {
     STEAM_EXTRA_COMPAT_TOOLS_PATHS =
       "\${HOME}/.steam/root/compatibilitytools.d";
 
-    #desativado para KDENLIVE funcionar #NIXOS_OZONE_WL = "1";                 # Melhor suporte Wayland
-    #desativado para kdenlive funcioncar #KWIN_DRM_USE_EGL_STREAMS = "0";       # Corrige NVIDIA + Wayland
+    # Notas da config antiga, mantidas por contexto:
+    # NIXOS_OZONE_WL = "1";
+    #   -> só faz sentido em sessão Wayland. Pantheon roda X11, então
+    #      fica desativado (era o que quebrava o kdenlive antes).
+    # KWIN_DRM_USE_EGL_STREAMS = "0";
+    #   -> era específico do KWin/KDE. Não existe mais razão no Pantheon.
   };
-
 
   # ==========================================================
   # SYSTEM VERSION (NUNCA ALTERAR LEVEMENTE)
   # ==========================================================
-  system.stateVersion = "25.11";
+  # 26.05 = versão em que ESTA máquina foi instalada.
+  # A config antiga tinha 25.11; copiar aquele valor para cá estaria
+  # ERRADO — este campo descreve a instalação, não o nixpkgs.
+  system.stateVersion = "26.05";
 }
-
-

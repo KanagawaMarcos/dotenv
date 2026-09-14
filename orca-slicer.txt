@@ -1,78 +1,107 @@
-Beleza. Agora ficou **claríssimo** 👍
-Abaixo está **APENAS a documentação da solução do print**, **sem falar de configuration.nix**, **sem binário extra**, **sem NixOS declarativo**.
-É literalmente **documentar o que você já fez**.
+# OrcaSlicer / BambuStudio no NixOS — tela branca e travamento
+
+## Status: RESOLVIDO DE FORMA DECLARATIVA (2026-09)
+
+O fix agora está dentro do `configuration.nix`, no helper `wrapGL` no
+topo do arquivo. Não é mais preciso wrapper manual em `~/.local/bin`
+nem nixGL.
 
 ---
 
-## Como deixar o OrcaSlicer funcionando no NixOS (wrapper local)
+## Problema
 
-### Problema
+No NixOS o OrcaSlicer (e o BambuStudio) abre com a **tela branca**:
+a janela aparece, mas a interface não renderiza. O erro é silencioso.
+Causa: o app não acessa corretamente as bibliotecas OpenGL/GBM do
+sistema por causa do isolamento do ambiente Nix.
 
-No NixOS, o OrcaSlicer pode abrir com a **tela branca** porque não consegue acessar corretamente as bibliotecas OpenGL do sistema. Isso acontece devido ao isolamento do ambiente Nix, e o erro ocorre de forma silenciosa: o aplicativo abre, mas não renderiza a interface.
+## O que NÃO fazer
 
-### Solução
+Definir `GBM_BACKEND = "dri"` em `environment.variables` (global).
+Isso resolve o slicer mas **derruba o desktop** — foi o que aconteceu
+no KDE e o motivo da linha ter ficado comentada na config antiga:
 
-Executar o OrcaSlicer usando **nixGL em modo impuro (`--impure`)**, garantindo que as bibliotecas gráficas reais do sistema sejam injetadas no ambiente da aplicação.
+```nix
+# environment.variables = {
+#   GBM_BACKEND = "dri";  # <- NÃO. Global quebra a sessão.
+# };
+```
 
-Para não precisar rodar o comando manualmente toda vez, usamos um **wrapper local** no `~/.local/bin`.
+## Solução atual (declarativa, no configuration.nix)
+
+Aplicar a variável **só nesses dois apps**, via wrapper. No topo do
+`configuration.nix`:
+
+```nix
+wrapGL = pkg: exe: pkgs.symlinkJoin {
+  name = "${lib.getName pkg}-glfix";
+  paths = [ pkg ];
+  nativeBuildInputs = [ pkgs.makeWrapper ];
+  postBuild = ''
+    wrapProgram $out/bin/${exe} \
+      --set GBM_BACKEND dri
+
+    # Os .desktop herdados apontam para o store path ORIGINAL, o que
+    # burlaria o wrapper ao abrir pelo menu. Por isso são reescritos.
+    for f in $out/share/applications/*.desktop; do
+      [ -e "$f" ] || continue
+      real=$(readlink -f "$f")
+      rm "$f"
+      substitute "$real" "$f" \
+        --replace-quiet "${pkg}/bin/${exe}" "$out/bin/${exe}"
+    done
+  '';
+};
+```
+
+E na lista de pacotes:
+
+```nix
+(wrapGL orca-slicer  "orca-slicer")
+(wrapGL bambu-studio "bambu-studio")
+```
+
+Vantagens sobre o wrapper manual antigo:
+- funciona tanto pelo terminal quanto pelo menu do desktop
+- some junto com o `nixos-rebuild` se você remover (nada solto no $HOME)
+- não depende de `--impure` nem de rede em runtime
+
+### Se ainda der tela branca
+
+Descomente as linhas extras dentro do `wrapProgram`:
+
+```nix
+  --set WEBKIT_DISABLE_COMPOSITING_MODE 1 \
+  --set __GL_THREADED_OPTIMIZATIONS 0
+```
+
+### Para reverter
+
+Troque `(wrapGL orca-slicer "orca-slicer")` por `orca-slicer` na lista
+de pacotes e rode `sudo nixos-rebuild switch`.
 
 ---
 
-## Passos
+## FALLBACK: método antigo com nixGL (manual, `~/.local/bin`)
 
-### 1️⃣ Criar o diretório de binários locais (se não existir)
+Mantido só como registro. Usar apenas se o método declarativo falhar.
 
 ```bash
 mkdir -p ~/.local/bin
-```
-
----
-
-### 2️⃣ Criar o wrapper do OrcaSlicer
-
-```bash
-nano ~/.local/bin/orca-slicer
-```
-
-Conteúdo do arquivo:
-
-```bash
+cat > ~/.local/bin/orca-slicer <<'EOF'
 #!/usr/bin/env bash
 exec nix run github:guibou/nixGL --impure -- orca-slicer "$@"
-```
-
----
-
-### 3️⃣ Tornar o arquivo executável
-
-```bash
+EOF
 chmod +x ~/.local/bin/orca-slicer
 ```
 
----
-
-### 4️⃣ Usar normalmente
+Teste direto sem criar o wrapper:
 
 ```bash
-orca-slicer
-```
-
-Ou apontar o menu do KDE para esse comando.
-
----
-
-## Resultado
-
-* O OrcaSlicer passa a abrir corretamente
-* A tela branca não aparece mais
-* Não é necessário alterar o `configuration.nix`
-* A solução é simples, local e imediata
-
-Essa abordagem resolve o problema de forma prática mantendo o setup atual intacto.
-
-
-
-
-
 export NIXPKGS_ALLOW_UNFREE=1
 nix run github:guibou/nixGL --impure -- orca-slicer
+```
+
+Limitações: só funciona pelo terminal (o menu continua chamando o
+binário sem wrapper), exige `--impure` e rede, e o arquivo fica solto
+no `$HOME` fora do controle do Nix.
