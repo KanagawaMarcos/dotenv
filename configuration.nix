@@ -321,6 +321,12 @@ in
 
   nixpkgs.config.allowUnfree = true;      # Permite software proprietário
 
+  # Pacotes ainda não disponíveis no nixpkgs.
+  # rayforge: enquanto o PR NixOS/nixpkgs#565514 não é mergeado.
+  nixpkgs.overlays = [
+    (import /home/kanagawamarcos/Git/rayforge-nix/overlay.nix)
+  ];
+
   # ==========================================================
   # USER ACCOUNT
   # ==========================================================
@@ -347,6 +353,7 @@ in
       pciutils
       mesa-demos
       alsa-utils
+      gh
 
       # === Android / Embedded ===
       android-studio android-studio-tools
@@ -357,6 +364,8 @@ in
       code-cursor
       mkcert pnpm vlc
       ffmpeg-full
+      prusa-slicer
+      rayforge
 
       # === Media ===
       lmms
