@@ -12,7 +12,7 @@
 #   sudo nixos-rebuild switch
 # ============================================================
 
-{ config, pkgs, lib, ... }:
+{ config, pkgs, lib, inputs, ... }:
 
 let
   # ==========================================================
@@ -311,6 +311,13 @@ in
     "nix-command"
     "flakes"
   ];
+
+  # Amarra os comandos avulsos (nix-shell -p, nix run nixpkgs#..., <nixpkgs>)
+  # à MESMA revisão de nixpkgs que o sistema usa, travada no flake.lock.
+  # Sem isto, existem duas fontes que atualizam por comandos diferentes e
+  # acabam divergindo sem aviso.
+  nix.registry.nixpkgs.flake = inputs.nixpkgs;
+  nix.nixPath = [ "nixpkgs=${inputs.nixpkgs}" ];
 
   # Limpeza automática do store (opcional — descomente se quiser)
   # nix.gc = {

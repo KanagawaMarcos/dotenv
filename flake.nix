@@ -9,10 +9,13 @@
   };
 
   outputs =
-    { self, nixpkgs, ... }:
+    inputs@{ self, nixpkgs, ... }:
     {
       nixosConfigurations.nixos = nixpkgs.lib.nixosSystem {
         system = "x86_64-linux";
+        # Entrega os inputs aos módulos, para o configuration.nix poder
+        # apontar nixPath e registry para esta mesma revisão de nixpkgs.
+        specialArgs = { inherit inputs; };
         modules = [
           ./configuration.nix
         ];
