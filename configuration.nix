@@ -323,8 +323,9 @@ in
 
   # Pacotes ainda não disponíveis no nixpkgs.
   # rayforge: enquanto o PR NixOS/nixpkgs#565514 não é mergeado.
+  # Vive dentro deste repo, então a config continua autossuficiente.
   nixpkgs.overlays = [
-    (import /home/kanagawamarcos/Git/rayforge-nix/overlay.nix)
+    (import ./overlays/rayforge)
   ];
 
   # ==========================================================
