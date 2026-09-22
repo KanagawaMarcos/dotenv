@@ -330,9 +330,22 @@ in
 
   # Pacotes ainda não disponíveis no nixpkgs.
   # rayforge: enquanto o PR NixOS/nixpkgs#565514 não é mergeado.
-  # Vive dentro deste repo, então a config continua autossuficiente.
+  # uvtools: enquanto o PR NixOS/nixpkgs#565611 não é mergeado.
+  # Vivem dentro deste repo, então a config continua autossuficiente.
   nixpkgs.overlays = [
     (import ./overlays/rayforge)
+    (import ./overlays/uvtools)
+
+    # Expõe o canal unstable como `pkgs.unstable.*`, para pacotes avulsos que
+    # devem ficar na última versão (ver input nixpkgs-unstable no flake.nix).
+    # É um segundo conjunto de pacotes, com closure própria: cada pacote que
+    # vier daqui traz as dependências dele, então use com parcimônia.
+    (final: _prev: {
+      unstable = import inputs.nixpkgs-unstable {
+        inherit (final.stdenv.hostPlatform) system;
+        config.allowUnfree = true;
+      };
+    })
   ];
 
   # ==========================================================
@@ -374,6 +387,7 @@ in
       ffmpeg-full
       prusa-slicer
       rayforge
+      uvtools
 
       # === Media ===
       lmms
@@ -411,6 +425,7 @@ in
       peazip
       krita
       inkscape
+      unstable.gimp                      # do canal unstable, sempre o mais novo
     ];
   };
 

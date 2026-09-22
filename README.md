@@ -287,11 +287,23 @@ O que **não** é declarativo e precisa ser refeito na mão:
 
 ## Como aplicar (em máquina já instalada)
 
+A config é um **flake** e mora neste repo. Não se copia mais nada para
+`/etc/nixos` — aponte o `nixos-rebuild` direto para o repo:
+
 ```bash
-sudo cp configuration.nix /etc/nixos/configuration.nix
-sudo nixos-rebuild test     # aplica só até o próximo reboot
-sudo nixos-rebuild switch   # confirma
+sudo nixos-rebuild test   --flake ~/Git/dotenv#nixos   # aplica só até o próximo reboot
+sudo nixos-rebuild switch --flake ~/Git/dotenv#nixos   # confirma
 ```
+
+`#nixos` é o nome em `nixosConfigurations` no `flake.nix`. O
+`/etc/nixos/configuration.nix` que ainda existe na máquina é a cópia
+pré-flake, **não é mais usada** — um `nixos-rebuild` sem `--flake` iria
+ler aquele arquivo velho e falhar (ele não recebe `inputs`).
+
+⚠️ O `nixos-rebuild` roda via `sudo`, e o flake precisa estar num repo
+git: arquivo novo não rastreado pelo git é **invisível** para o flake.
+Depois de criar um diretório novo em `overlays/`, faça ao menos
+`git add` antes de rebuildar.
 
 **Não copie `hardware-configuration.nix`.** Ele é gerado pelo
 `nixos-generate-config` e tem os UUID dos discos. A cópia no repo é só
@@ -304,6 +316,35 @@ Para atualizar o backup depois de mexer em disco:
 ```bash
 cp /etc/nixos/hardware-configuration.nix ~/dotenv/hardware-configuration.nix
 ```
+
+### Dois nixpkgs: o do sistema e o unstable
+
+O `flake.nix` tem **dois** inputs de nixpkgs:
+
+| Input | Aponta para | Quem usa |
+|---|---|---|
+| `nixpkgs` | uma revisão fixa (26.05) | o sistema inteiro |
+| `nixpkgs-unstable` | branch `nixos-unstable` | só o que estiver escrito `unstable.<pacote>` |
+
+O segundo existe para os pacotes que devem ficar sempre na versão mais
+nova — hoje só o **gimp** (`unstable.gimp` na lista de pacotes).
+
+⚠️ **"unstable" não quer dizer "atualiza sozinho".** A revisão do branch
+fica travada no `flake.lock` igual à outra. Para puxar versão nova:
+
+```bash
+cd ~/Git/dotenv
+nix flake update nixpkgs-unstable      # só o canal unstable
+sudo nixos-rebuild switch --flake ~/Git/dotenv#nixos
+```
+
+Um `nix flake update` sem argumento atualiza **os dois** — e aí o sistema
+inteiro sai da revisão fixa, que é justamente o download de 12 GiB que a
+migração para flake evitou. Use o nome do input.
+
+Cada pacote vindo do unstable arrega a closure dele (as dependências
+daquela revisão, não as do sistema), então a conta de disco cresce por
+pacote: vale para um punhado deles, não para dezenas.
 
 ---
 
@@ -428,10 +469,10 @@ Gotchas que dependem de você, **no Windows**:
 - Pacotes que estavam na config antiga e **não** foram migrados:
   `blender`, `obs-studio`, `unetbootin`, `gimp-with-plugins`,
   `cargo`, `rustfmt`, `stdenv.cc.cc`. Alguns têm substituto na config
-  nova (`kdePackages.isoimagewriter` no lugar do unetbootin; `krita` no
-  lugar do gimp; `cargo`/`rustfmt` vêm do `rustup`). Os que não têm —
-  `blender` e `obs-studio` — foram perda real; adicione de volta em
-  `users.users.kanagawamarcos.packages` se fizer falta.
+  nova (`kdePackages.isoimagewriter` no lugar do unetbootin;
+  `cargo`/`rustfmt` vêm do `rustup`). `blender`, `obs-studio` e o
+  `gimp` (3.0.8, sem os plugins) já voltaram para
+  `users.users.kanagawamarcos.packages`.
 - `inkscape-with-extensions` virou `inkscape` puro (sem as extensões).
 
 ## Adaptações KDE → Pantheon
