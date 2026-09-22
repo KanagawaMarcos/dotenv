@@ -272,8 +272,11 @@ passwd kanagawamarcos               # a senha do usuário não vem da config
 git config --global user.name  "Marcos Kanagawa"
 git config --global user.email "marcos@kanagawa.io"
 
-git clone git@github.com:KanagawaMarcos/dotenv.git ~/dotenv
+git clone git@github.com:KanagawaMarcos/dotenv.git ~/Git/dotenv
 ```
+
+O caminho importa: os comandos de `nixos-rebuild` mais abaixo apontam
+para `~/Git/dotenv`. Clonando em outro lugar, ajuste-os junto.
 
 O que **não** é declarativo e precisa ser refeito na mão:
 
@@ -314,7 +317,7 @@ os UUID mudam e o arquivo bom é sempre o gerado na hora.
 Para atualizar o backup depois de mexer em disco:
 
 ```bash
-cp /etc/nixos/hardware-configuration.nix ~/dotenv/hardware-configuration.nix
+cp /etc/nixos/hardware-configuration.nix ~/Git/dotenv/hardware-configuration.nix
 ```
 
 ### Dois nixpkgs: o do sistema e o unstable
