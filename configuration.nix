@@ -370,7 +370,7 @@ in
       dotnetCorePackages.sdk_9_0-bin
       rustc rustup
       emacs vim vscode jetbrains.rider
-      claude-code chromium
+      claude-code chromium google-chrome
       pciutils
       mesa-demos
       alsa-utils
