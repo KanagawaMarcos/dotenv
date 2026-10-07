@@ -47,6 +47,55 @@ let
       done
     '';
   };
+
+  # ==========================================================
+  # HELPER: shell FHS para o toolchain Android
+  # ==========================================================
+  # O SDK do Android não é FHS-friendly: `aapt2`, `emulator` e os binários de
+  # build-tools são ELFs linkados contra /lib64/ld-linux-x86-64.so.2, que não
+  # existe no NixOS. É a armadilha nº 1 de Android aqui.
+  #
+  # O `android-studio` já resolve isso PARA SI MESMO — ele é um buildFHSEnv
+  # (confira: bin/android-studio só faz `exec ...-fhs-env ...`). O problema é que
+  # `./gradlew` rodado no terminal fica FORA desse env.
+  #
+  # Este `android-fhs` expõe o mesmo truque como shell: entra, roda
+  # gradle/emulator/adb, sai. O SDK continua em ~/Android/Sdk, gerenciado pelo
+  # próprio Studio — e não pelo nixpkgs, de propósito: o androidenv desta revisão
+  # só tem plataformas até android-37.0 e o voxi-android exige a 37.1
+  # (compileSdk 37 + compileSdkMinor 1). Um SDK no /nix/store é somente-leitura e
+  # não se autocorrige quando o AGP pede componente novo.
+  #
+  # O `programs.nix-ld` lá embaixo cobre PARTE disso, mas só com o conjunto
+  # default de libs — sem o Qt e o GL que o emulador precisa. Daí o FHS.
+  android-fhs = pkgs.buildFHSEnv {
+    name = "android-fhs";
+    targetPkgs = p: with p; [
+      jdk17                               # AGP 9 exige JDK 17+
+      android-tools                       # adb/fastboot já patchados pelo Nix
+      which git
+
+      # Dependências dos binários que o SDK Manager baixa (aapt2, d8, ...)
+      zlib stdenv.cc.cc.lib expat ncurses5
+
+      # Qt + GL do emulador. `-gpu host` fala com o driver NVIDIA do host, que
+      # entra via LD_LIBRARY_PATH no `profile` abaixo.
+      libglvnd libxkbcommon fontconfig freetype
+      libpulseaudio alsa-lib
+      xorg.libX11 xorg.libXext xorg.libXrender xorg.libXi
+      xorg.libxcb xorg.libXcursor xorg.libXrandr
+    ];
+    profile = ''
+      export ANDROID_HOME="$HOME/Android/Sdk"
+      export ANDROID_SDK_ROOT="$ANDROID_HOME"
+      export JAVA_HOME="${pkgs.jdk17.home}"
+      # O cmdline-tools do SDK vem ANTES: o `sdkmanager` do pacote
+      # android-studio-tools é outra versão e aponta para outro sdk root.
+      export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH"
+      # Driver NVIDIA do host — requisito do `-gpu host`, não otimização.
+      export LD_LIBRARY_PATH="/run/opengl-driver/lib:$LD_LIBRARY_PATH"
+    '';
+  };
 in
 {
   # ==========================================================
@@ -303,6 +352,19 @@ in
   virtualisation.docker.enable = true;
 
   # ==========================================================
+  # ANDROID — adb em aparelho físico
+  # ==========================================================
+  # NÃO use `programs.adb.enable` aqui: nesta revisão do nixpkgs a opção foi
+  # removida e vira erro de assertion na avaliação —
+  #   "no longer has any effect; systemd 258 handles uaccess rules automatically"
+  # O systemd 258 já aplica a regra de uaccess para dispositivo Android, então a
+  # regra udev da Google e o grupo `adbusers` deixaram de ser necessários.
+  #
+  # O que sobra é garantir o binário: `android-tools` entra na lista de pacotes
+  # (ver seção Android abaixo), porque o `android-studio-tools` entrega
+  # sdkmanager/avdmanager/apkanalyzer e NÃO entrega `adb`.
+
+  # ==========================================================
   # NIX & COMPATIBILITY
   # ==========================================================
   programs.nix-ld.enable = true;          # Executar binários não-Nix
@@ -361,6 +423,12 @@ in
       "uucp" "dialout"                   # Serial / Arduino / K40
       "scanner" "lp"                     # Scanner e impressora
       "docker"                           # ATENÇÃO: equivale a root
+      # Sem "adbusers": o grupo só existia via `programs.adb.enable`, removido
+      # nesta revisão do nixpkgs (systemd 258 cuida do uaccess). Declará-lo aqui
+      # falharia na ativação, porque o grupo não é criado por ninguém.
+      "kvm"                              # Emulador Android. Hoje /dev/kvm já é 0666
+                                         # e funciona sem isto; o grupo é garantia
+                                         # se a regra udev mudar.
     ];
 
     packages = with pkgs; [
@@ -370,14 +438,40 @@ in
       dotnetCorePackages.sdk_9_0-bin
       rustc rustup
       emacs vim vscode jetbrains.rider
-      claude-code chromium google-chrome
+      chromium google-chrome
+      claude-code
+      codex
+      tmux
       pciutils
       mesa-demos
       alsa-utils
       gh
 
       # === Android / Embedded ===
-      android-studio android-studio-tools
+      # Studio do canal unstable, NÃO o do pinned. Motivo concreto: o
+      # voxi-android pina AGP 9.1.1, e o comentário no libs.versions.toml dele diz
+      # que 9.1.1 é "o que o Android Studio 2026.1 abre sem reclamar". O pinned
+      # traz 2025.3.4 Patch 1, que recusa o sync por versão de AGP não suportada.
+      # O unstable traz 2026.1. Mesmo padrão do `unstable.gimp` abaixo.
+      # (O build por CLI funciona nas duas; isto é só a GUI.)
+      unstable.android-studio
+      android-studio-tools
+
+      # AGP 9 roda em JDK 17+ e o projeto compila para bytecode 17
+      # (sourceCompatibility/jvmTarget = 17). A JBR que vem dentro do Studio é uma
+      # 21 e existe só DENTRO do FHS env dele — não serve para `./gradlew` no
+      # terminal, onde hoje `java` nem resolve. Daí o JDK explícito.
+      #
+      # NÃO adicione `gradle`: o projeto usa o wrapper, que baixa o 9.3.1. O
+      # pkgs.gradle desta revisão é 8.14.4 e seria a versão errada.
+      jdk17
+
+      # adb e fastboot. O android-studio-tools NÃO os inclui, e `programs.adb`
+      # não existe mais nesta revisão — o systemd 258 já resolve a permissão do
+      # dispositivo, então basta ter o binário no PATH.
+      android-tools
+
+      android-fhs                        # ver helper no topo do arquivo
       arduino-ide
 
       # === Design / CAD / Maker ===
@@ -469,6 +563,12 @@ in
   environment.sessionVariables = {
     STEAM_EXTRA_COMPAT_TOOLS_PATHS =
       "\${HOME}/.steam/root/compatibilitytools.d";
+
+    # Onde o Android Studio instala o SDK. Precisa estar no ambiente para o
+    # Gradle achar a plataforma android-37.1 sem `local.properties` — que é
+    # por-máquina e está no .gitignore do voxi-android.
+    ANDROID_HOME     = "\${HOME}/Android/Sdk";
+    ANDROID_SDK_ROOT = "\${HOME}/Android/Sdk";
 
     # Notas da config antiga, mantidas por contexto:
     # NIXOS_OZONE_WL = "1";
