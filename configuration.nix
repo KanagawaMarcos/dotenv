@@ -630,6 +630,7 @@ in
       # === Communication ===
       thunderbird discord telegram-desktop signal-desktop
       localsend
+      trayscale                          # GUI do Tailscale (GTK4); ícone no tray via namarupa
 
       # === Gaming ===
       mangohud protonup-ng lutris heroic bottles godot
@@ -691,7 +692,18 @@ in
   services.tailscale = {
     enable = true;
     openFirewall = true;
+    # Deixa o usuário controlar o tailscaled sem sudo — é o que permite ao
+    # Trayscale (GUI) conectar, trocar de conta e ver os peers.
+    extraSetFlags = [ "--operator=kanagawamarcos" ];
   };
+
+  # Tray do wingpanel para apps com StatusNotifierItem (Trayscale, Discord…).
+  # O wingpanel do Pantheon 8 não mostra esses ícones sozinho; o antigo
+  # `wingpanel-indicator-ayatana` foi removido do nixpkgs (não funciona do
+  # Pantheon 8 em diante) e o próprio aviso de remoção aponta este aqui.
+  services.desktopManager.pantheon.extraWingpanelIndicators = [
+    pkgs.wingpanel-indicator-namarupa
+  ];
 
   # ==========================================================
   # LLM LOCAL
