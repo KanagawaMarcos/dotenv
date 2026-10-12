@@ -84,6 +84,12 @@ let
       libpulseaudio alsa-lib
       xorg.libX11 xorg.libXext xorg.libXrender xorg.libXi
       xorg.libxcb xorg.libXcursor xorg.libXrandr
+
+      # O resto do que o emulador 37.x pede e não traz em emulator/lib64.
+      # Levantado com `ldd` sobre emulator, qemu-system-x86_64 e as libs/
+      # plugins Qt dele, dentro deste FHS. Sem libpng o qemu nem carrega.
+      libpng libbsd dbus libdrm libuuid nss nspr
+      xorg.libICE xorg.libSM xorg.libxkbfile
     ];
     profile = ''
       export ANDROID_HOME="$HOME/Android/Sdk"
