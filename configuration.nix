@@ -96,6 +96,51 @@ let
       export LD_LIBRARY_PATH="/run/opengl-driver/lib:$LD_LIBRARY_PATH"
     '';
   };
+
+  # ==========================================================
+  # HELPER: chrome-headless-shell para o HyperFrames
+  # ==========================================================
+  # O HyperFrames (render de vídeo a partir de HTML) captura frames por
+  # `HeadlessExperimental.beginFrame`, que NÃO existe no Chrome/Chromium
+  # normal — só no binário `chrome-headless-shell`. Sem ele a CLI cai no
+  # modo screenshot, que funciona mas levou ~1,8x o tempo num teste de
+  # 300 frames (10,7s contra 5,9s).
+  #
+  # A CLI se oferece para baixar esse binário sozinha, em
+  # ~/.cache/hyperframes/chrome. Esse download NÃO roda aqui: é um ELF
+  # linkado contra libglib/libnss/libX11 de distro. Mesma armadilha do SDK
+  # do Android acima. O nix-ld cobriria em teoria, mas seria preciso
+  # listar ~20 libs à mão e versionar o download por fora do Nix.
+  #
+  # O nixpkgs já empacota exatamente esse binário, com autoPatchelf, dentro
+  # do playwright-driver. Os overrides desligam chromium, firefox, webkit e
+  # ffmpeg — sobra só o headless shell (99 MiB em vez de ~1 GiB).
+  #
+  # O `runCommand` existe por um motivo só: o linkFarm nomeia o diretório
+  # como `chromium_headless_shell-<revisão>`, e a revisão muda a cada bump
+  # do playwright. O glob resolve isso no build, então o caminho fixo
+  # exportado em HYPERFRAMES_BROWSER_PATH não quebra no update.
+  #
+  # Nota: o headless shell renderiza por swiftshader (GPU em software).
+  # Para composição com WebGL/Three.js pesado, o Chrome do sistema usa a
+  # NVIDIA e pode ser mais rápido — nesse caso rode o render com
+  # HYPERFRAMES_BROWSER_PATH=$(command -v google-chrome) na frente.
+  hyperframes-headless-shell =
+    let
+      browsers = pkgs.playwright-driver.browsers.override {
+        withChromium = false;
+        withFirefox = false;
+        withWebkit = false;
+        withFfmpeg = false;
+        withChromiumHeadlessShell = true;
+      };
+    in
+    pkgs.runCommand "hyperframes-headless-shell" { } ''
+      shell=$(echo ${browsers}/chromium_headless_shell-*/chrome-headless-shell-linux64/chrome-headless-shell)
+      test -x "$shell"
+      mkdir -p $out/bin
+      ln -s "$shell" $out/bin/chrome-headless-shell
+    '';
 in
 {
   # ==========================================================
@@ -209,7 +254,7 @@ in
     # Layout de teclado no X11
     xkb = {
       layout = "br";
-      variant = "";
+      variant = "abnt2";                  # explícito; ver nota do Xwayland abaixo
     };
 
     # Driver de vídeo proprietário NVIDIA
@@ -239,6 +284,47 @@ in
 
   # Teclado do console (TTY)
   console.keyMap = "br-abnt2";
+
+  # Xwayland NÃO herda o layout do compositor nesta sessão Pantheon.
+  # Medido na máquina: `gsettings get org.gnome.desktop.input-sources sources`
+  # devolve [('xkb','br')] e os apps Wayland nativos ficam certos, mas
+  # `setxkbmap -query` no Xwayland devolvia `layout: us`.
+  #
+  # Efeito prático: todo app que roda via Xwayland (o Chrome, por exemplo, que
+  # sobe em X11 por padrão) ficava sem cedilha e sem as dead keys de ~ ´ ^ —
+  # era o motivo de não dar pra acentuar no navegador.
+  #
+  # Esta unit reaplica o layout no Xwayland quando a sessão sobe. Só afeta o
+  # Xwayland; os apps Wayland nativos já estavam corretos.
+  systemd.user.services.xwayland-keymap = {
+    description = "Aplica o layout br-abnt2 no Xwayland";
+    after = [ "graphical-session.target" ];
+    wantedBy = [ "graphical-session.target" ];
+    serviceConfig = {
+      Type = "oneshot";
+      Environment = "DISPLAY=:0";
+      # O Xwayland pode demorar a aceitar conexão; tenta algumas vezes.
+      ExecStart = "${pkgs.bash}/bin/bash -c '"
+        + "for i in 1 2 3 4 5 6 7 8 9 10; do "
+        + "${pkgs.setxkbmap}/bin/setxkbmap -layout br -variant abnt2 && exit 0; "
+        + "sleep 2; done; exit 1'";
+      RemainAfterExit = true;
+    };
+  };
+
+  # Pastas especiais do XDG para usuários novos. Sem isto o
+  # xdg-user-dirs não gera ~/.config/user-dirs.dirs, `xdg-user-dir PICTURES`
+  # cai para $HOME, e os screenshots do Pantheon vão parar soltos na home.
+  environment.etc."xdg/user-dirs.defaults".text = ''
+    DESKTOP=Desktop
+    DOWNLOAD=Downloads
+    DOCUMENTS=Documents
+    PICTURES=Pictures
+    VIDEOS=Videos
+    MUSIC=Music
+    TEMPLATES=Templates
+    PUBLICSHARE=Public
+  '';
 
   # ==========================================================
   # NVIDIA GPU  —  ATENÇÃO: `open` MUDOU DE false PARA true
@@ -369,6 +455,13 @@ in
   # ==========================================================
   programs.nix-ld.enable = true;          # Executar binários não-Nix
 
+  # Põe ~/.local/bin no PATH. Necessário porque o prefixo global do npm
+  # aponta para ~/.local (ver ~/.npmrc): o default dele é o store path do
+  # nodejs, que é somente-leitura, então `npm i -g` falhava. É por aí que
+  # entra a CLI do hyperframes, que não tem pacote no nixpkgs e sobe de
+  # versão quase diariamente — por isso fica no npm e não aqui.
+  environment.localBinInPath = true;
+
   nix.settings.experimental-features = [
     "nix-command"
     "flakes"
@@ -434,12 +527,38 @@ in
     packages = with pkgs; [
       # === System / Dev ===
       git git-lfs wget openssl zlib libgcc
+      unzip                              # `hyperframes doctor` cobra um extrator
+                                         # de archive; era a única dependência
+                                         # faltando na máquina.
       docker nodejs python3
       dotnetCorePackages.sdk_9_0-bin
       rustc rustup
       emacs vim vscode jetbrains.rider
       chromium google-chrome
-      claude-code
+
+      # claude-code NÃO entra aqui — vem do npm, em ~/.local/bin.
+      #
+      # Não é preferência: a CLI do Claude Code trava o acesso a modelo por
+      # versão dela mesma. Pedir o Opus 5.5 na 2.1.223 (a desta revisão do
+      # nixpkgs, publicada em 2026-08-05) devolve erro do servidor, não um
+      # fallback silencioso:
+      #
+      #   400 Claude Code 2.1.223 does not support this model;
+      #       version 2.1.280 or newer is required.
+      #
+      # O Opus 5.5 saiu em 2026-09-22. O nixpkgs pinado parou na 2.1.223 e o
+      # nixos-unstable que o flake.lock trava estava na 2.1.278 — duas versões
+      # abaixo do mínimo. Perseguir isso pelo lock significaria atualizar o
+      # input unstable a cada lançamento de modelo da Anthropic, arrastando
+      # junto android-studio, gimp e openlogi.
+      #
+      # Com o `environment.localBinInPath` acima, /etc/set-environment emite
+      # `export PATH="$HOME/.local/bin:$PATH"` — o npm vem na frente. Atualizar
+      # é `npm i -g @anthropic-ai/claude-code`, e o auto-update da própria CLI
+      # volta a funcionar, porque ~/.local é gravável e o /nix/store não é.
+      #
+      # O binário é um ELF de distro; quem o faz rodar aqui é o `programs.nix-ld`
+      # já ligado mais acima.
       codex
       tmux
       pciutils
@@ -488,12 +607,31 @@ in
       blender                            # 3D; usa a GPU NVIDIA (CUDA/OptiX)
       obs-studio                         # Captura/streaming
 
+      # Backend de captura do HyperFrames — ver helper no topo do arquivo.
+      # Precisa estar NESTA lista, não só na sessionVariable: é o que torna o
+      # store path uma raiz de GC. Sem isso, o primeiro `nix-collect-garbage`
+      # apaga o binário e todo render passa a falhar.
+      hyperframes-headless-shell
+
+      # Transcrição do HyperFrames (legenda a partir de áudio/vídeo). A CLI
+      # procura `whisper-cli` no PATH, que é justamente o que este pacote
+      # entrega. A doc dele manda compilar do fonte com cmake; não precisa.
+      # Build de CPU de propósito: a variante CUDA compila o mundo e 24
+      # núcleos dão conta. Os modelos .bin ficam fora do Nix, baixados sob
+      # demanda para ~/.cache.
+      whisper-cpp
+
       # === Communication ===
       thunderbird discord telegram-desktop signal-desktop
       localsend
 
       # === Gaming ===
       mangohud protonup-ng lutris heroic bottles godot
+
+      # Companion dos periféricos Logitech (HID++). NÃO existe na revisão
+      # pinada do `nixpkgs` — entrou depois, então só o canal unstable tem.
+      # Por isso o prefixo; sem ele o rebuild falha com "undefined variable".
+      unstable.openlogi
 
       # === Utilities ===
       xclip
@@ -515,7 +653,9 @@ in
       (wrapGL bambu-studio "bambu-studio")  # ver helper `wrapGL` no topo
 
       # === Outros ===
-      ollama
+      # ollama: vem do services.ollama abaixo (servidor + CLI, com CUDA)
+      unstable.lmstudio                  # do unstable: o runtime de LLM evolui
+                                         # rápido e o pinado ficou na 0.4.15
       peazip
       krita
       inkscape
@@ -532,6 +672,48 @@ in
   };
 
   programs.gamemode.enable = true;
+
+  # ==========================================================
+  # LLM LOCAL
+  # ==========================================================
+  # O pacote `ollama` sozinho só entrega o CLI: sem `ollama serve` rodando,
+  # todo comando falha ao conectar. O serviço sobe o servidor em
+  # 127.0.0.1:11434 e já põe o CLI no PATH. A variante CUDA usa a NVIDIA;
+  # o `ollama` puro roda só em CPU. Os modelos ficam em /var/lib/ollama.
+  services.ollama = {
+    enable = true;
+    package = pkgs.ollama-cuda;
+  };
+
+  # ==========================================================
+  # PERIFÉRICOS
+  # ==========================================================
+  # O openlogi não funciona só com o binário no PATH: ele fala com o mouse
+  # Logitech via /dev/hidraw* e /dev/uinput, que nascem root-only. O pacote já
+  # traz a regra de udev pronta (lib/udev/rules.d/70-openlogi.rules, com
+  # TAG+="uaccess", sem precisar de grupo), mas `environment.systemPackages` e
+  # `users.users.*.packages` NÃO ativam regra de udev — só esta opção ativa.
+  #
+  # Sem isto o app abre e simplesmente não acha o dispositivo.
+  services.udev.packages = [ pkgs.unstable.openlogi ];
+
+  # O agente em background, que é quem aplica DPI/botões/bateria.
+  #
+  # A unit é escrita à mão aqui de propósito. O pacote traz a dele, mas em
+  # share/systemd/user/, e o `systemd.packages` do NixOS só varre
+  # etc/systemd/user e lib/systemd/user (nixos/lib/systemd-lib.nix) — o
+  # caminho do openlogi não é visto, e o resultado é uma unit VAZIA, sem
+  # ExecStart, que falha ao iniciar. Isto aqui é uma cópia do upstream.
+  systemd.user.services.openlogi-agent = {
+    description = "OpenLogi background agent (Logitech HID++ device control)";
+    after = [ "graphical-session.target" ];
+    wantedBy = [ "graphical-session.target" ];
+    serviceConfig = {
+      ExecStart = "${pkgs.unstable.openlogi}/bin/openlogi-agent";
+      Restart = "on-failure";
+      RestartSec = 5;
+    };
+  };
 
   # ==========================================================
   # BROWSERS
@@ -569,6 +751,13 @@ in
     # por-máquina e está no .gitignore do voxi-android.
     ANDROID_HOME     = "\${HOME}/Android/Sdk";
     ANDROID_SDK_ROOT = "\${HOME}/Android/Sdk";
+
+    # Backend de captura do HyperFrames. Sem isto a CLI tenta baixar o
+    # próprio chrome-headless-shell, que não roda no NixOS (ELF de distro),
+    # e então cai no modo screenshot do Chrome do sistema. Ver o helper
+    # `hyperframes-headless-shell` no topo do arquivo.
+    HYPERFRAMES_BROWSER_PATH =
+      "${hyperframes-headless-shell}/bin/chrome-headless-shell";
 
     # Notas da config antiga, mantidas por contexto:
     # NIXOS_OZONE_WL = "1";
