@@ -680,6 +680,20 @@ in
   programs.gamemode.enable = true;
 
   # ==========================================================
+  # TAILSCALE
+  # ==========================================================
+  # Rede privada entre as máquinas do Marcos. Uso principal: SSH até o
+  # MacBook para compilar, testar e subir o voxi-ios (Xcode só roda em macOS).
+  # Preferido a ngrok/porta aberta: nada fica exposto na internet pública.
+  # Primeiro uso: `sudo tailscale up` e logar na mesma conta do Mac.
+  # `openFirewall` libera só a UDP 41641 (conexão direta P2P); sem ela o
+  # tráfego cai no relay DERP, que funciona mas é mais lento.
+  services.tailscale = {
+    enable = true;
+    openFirewall = true;
+  };
+
+  # ==========================================================
   # LLM LOCAL
   # ==========================================================
   # O pacote `ollama` sozinho só entrega o CLI: sem `ollama serve` rodando,
