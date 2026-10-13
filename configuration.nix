@@ -492,10 +492,12 @@ in
   # Pacotes ainda não disponíveis no nixpkgs.
   # rayforge: enquanto o PR NixOS/nixpkgs#565514 não é mergeado.
   # uvtools: enquanto o PR NixOS/nixpkgs#565611 não é mergeado.
+  # kytyps5: emulador de PS5, compilado do fonte (não existe no nixpkgs).
   # Vivem dentro deste repo, então a config continua autossuficiente.
   nixpkgs.overlays = [
     (import ./overlays/rayforge)
     (import ./overlays/uvtools)
+    (import ./overlays/kytyps5)
 
     # Expõe o canal unstable como `pkgs.unstable.*`, para pacotes avulsos que
     # devem ficar na última versão (ver input nixpkgs-unstable no flake.nix).
@@ -634,6 +636,7 @@ in
 
       # === Gaming ===
       mangohud protonup-ng lutris heroic bottles godot
+      kytyps5                            # Emulador de PS5 (overlays/kytyps5)
 
       # Companion dos periféricos Logitech (HID++). NÃO existe na revisão
       # pinada do `nixpkgs` — entrou depois, então só o canal unstable tem.
