@@ -1,0 +1,11 @@
+[Unit]
+Description=Update Monica within the stable 4.1 release line
+After=network-online.target monica.service
+Requires=monica.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/.local/share/monica
+ExecStartPre=%h/Git/dotenv/apps/monica/backup.sh
+ExecStart=/etc/profiles/per-user/kanagawamarcos/bin/docker compose --project-name monica pull app
+ExecStartPost=/etc/profiles/per-user/kanagawamarcos/bin/docker compose --project-name monica up -d --remove-orphans

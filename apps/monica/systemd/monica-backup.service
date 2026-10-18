@@ -1,0 +1,9 @@
+[Unit]
+Description=Create encrypted Monica snapshot in the dotfiles repository
+After=monica.service
+Requires=monica.service
+
+[Service]
+Type=oneshot
+ExecStart=%h/Git/dotenv/apps/monica/backup.sh
+ExecStartPost=%h/Git/dotenv/apps/monica/git-sync.sh

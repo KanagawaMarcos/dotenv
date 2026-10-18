@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Monica
+GenericName=CRM pessoal de relacionamentos
+Comment=Organize contatos, interações e lembretes pessoais
+Exec=/home/kanagawamarcos/.local/share/monica/launch.sh
+Icon=emblem-people
+Terminal=false
+Categories=Office;ContactManagement;
+Keywords=contacts;friends;family;crm;relationships;
+StartupNotify=true
+StartupWMClass=Monica

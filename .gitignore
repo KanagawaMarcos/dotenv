@@ -1,1 +1,6 @@
 .claude/settings.local.json*
+
+# Monica: apenas os snapshots criptografados podem ser versionados.
+apps/monica/data/*
+!apps/monica/data/.gitkeep
+!apps/monica/data/*.age

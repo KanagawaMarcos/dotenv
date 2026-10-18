@@ -1,0 +1,11 @@
+[Unit]
+Description=Monthly encrypted Monica snapshot
+
+[Timer]
+OnCalendar=*-*-01 03:43:00
+Persistent=true
+RandomizedDelaySec=15m
+Unit=monica-backup.service
+
+[Install]
+WantedBy=timers.target

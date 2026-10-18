@@ -1,0 +1,50 @@
+name: monica
+
+services:
+  app:
+    image: monica:4.1-apache
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8092:80"
+    environment:
+      # Monica v4 forces HTTPS only in its production environment. This
+      # installation is intentionally local-only and uses HTTP on localhost.
+      APP_ENV: local
+      APP_DEBUG: "false"
+      APP_URL: http://127.0.0.1:8092
+      APP_KEY: ${APP_KEY}
+      DB_CONNECTION: mysql
+      DB_HOST: db
+      DB_DATABASE: monica
+      DB_USERNAME: monica
+      DB_PASSWORD: ${DB_PASSWORD}
+      LOG_CHANNEL: stderr
+      CACHE_DRIVER: database
+      SESSION_DRIVER: database
+      QUEUE_DRIVER: sync
+    volumes:
+      - monica_storage:/var/www/html/storage
+    restart: unless-stopped
+
+  db:
+    image: mariadb:11
+    environment:
+      MYSQL_DATABASE: monica
+      MYSQL_USER: monica
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+      MYSQL_RANDOM_ROOT_PASSWORD: "true"
+    volumes:
+      - monica_database:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mariadb-admin ping -h localhost -u$$MYSQL_USER -p$$MYSQL_PASSWORD --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    restart: unless-stopped
+
+volumes:
+  monica_storage:
+  monica_database:

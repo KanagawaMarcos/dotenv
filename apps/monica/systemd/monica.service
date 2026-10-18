@@ -1,0 +1,13 @@
+[Unit]
+Description=Monica Personal CRM containers
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=%h/.local/share/monica
+ExecStart=/etc/profiles/per-user/kanagawamarcos/bin/docker compose --project-name monica up -d --remove-orphans
+
+[Install]
+WantedBy=default.target

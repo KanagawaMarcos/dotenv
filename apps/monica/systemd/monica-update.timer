@@ -1,0 +1,11 @@
+[Unit]
+Description=Weekly Monica update check
+
+[Timer]
+OnCalendar=Sun *-*-* 04:17:00
+Persistent=true
+RandomizedDelaySec=20m
+Unit=monica-update.service
+
+[Install]
+WantedBy=timers.target
