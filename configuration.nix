@@ -148,6 +148,66 @@ let
       ln -s "$shell" $out/bin/chrome-headless-shell
     '';
 
+  # ==========================================================
+  # APP: Ledor — leitor RSVP de EPUB e artigos
+  # ==========================================================
+  # O upstream distribui apenas um tarball Linux genérico. No NixOS, os
+  # caminhos de bibliotecas não seguem o layout FHS; por isso o binário e os
+  # plugins são corrigidos por autoPatchelf. SQLite merece atenção extra:
+  # o Flutter o carrega por FFI (dlopen), então não aparece na lista ELF de
+  # dependências. `runtimeDependencies` inclui libsqlite3.so no RUNPATH do
+  # executável e evita a falha ao importar um livro.
+  ledor = pkgs.stdenv.mkDerivation {
+    pname = "ledor";
+    version = "0.3.0";
+
+    src = pkgs.fetchurl {
+      url = "https://github.com/daniel-pimenta-cc/ledor/releases/download/v0.3.0/ledor-linux-x64-v0.3.0.tar.gz";
+      hash = "sha256-Yz0PVn1gwDmcRjAfQsvLYnkG0WkLNbZ+vSgBxG1odAI=";
+    };
+
+    nativeBuildInputs = with pkgs; [ autoPatchelfHook copyDesktopItems ];
+    buildInputs = with pkgs; [
+      gtk3
+      libsecret
+      stdenv.cc.cc.lib
+      xz
+      zlib
+    ];
+    runtimeDependencies = [ (lib.getLib pkgs.sqlite) ];
+
+    unpackPhase = "tar -xzf $src";
+    sourceRoot = ".";
+    dontConfigure = true;
+    dontBuild = true;
+
+    # A biblioteca JNI também vem no bundle, mas o Ledor não usa uma JVM
+    # para importar EPUBs, ler artigos ou sintetizar a voz.
+    autoPatchelfIgnoreMissingDeps = [ "libjvm.so" ];
+
+    installPhase = ''
+      runHook preInstall
+      mkdir -p $out/libexec/ledor $out/bin
+      cp -r . $out/libexec/ledor/
+      chmod +x $out/libexec/ledor/ledor
+      ln -s ../libexec/ledor/ledor $out/bin/ledor
+      install -Dm644 ledor.png $out/share/icons/hicolor/512x512/apps/ledor.png
+      runHook postInstall
+    '';
+
+    desktopItems = [
+      (pkgs.makeDesktopItem {
+        name = "com.pimenta.ledor";
+        desktopName = "Ledor";
+        comment = "Leitor RSVP de EPUB e artigos web";
+        exec = "ledor";
+        icon = "ledor";
+        categories = [ "Office" "Viewer" "Education" ];
+        startupWMClass = "com.pimenta.ledor";
+      })
+    ];
+  };
+
   # O AppImage permanece em ~/Applications (é o binário baixado), mas seu
   # lançador e entrada de menu são declarados nesta configuração.
   openmausbot = pkgs.writeShellScriptBin "openmausbot" ''
@@ -870,6 +930,10 @@ in
   # ==========================================================
   # BROWSERS
   # ==========================================================
+  # Backend de voz local do Ledor. A unit é acionada por socket para cada
+  # sessão gráfica; assim não há daemon ocioso quando ninguém está logado.
+  services.speechd.enable = true;
+
   programs.firefox.enable = true;
 
   # LocalSend (alternativa ao AirDrop com o iPhone). Pelo módulo, e não
@@ -905,6 +969,7 @@ in
     gparted
     openmausbot
     openmausbot-desktop
+    ledor                               # leitor de EPUBs; ver helper no topo
     vim
     wget
     git
