@@ -821,6 +821,52 @@ in
     };
   };
 
+  # Screenshots: o Gala salva em ~/Pictures/Screenshots e este serviço copia
+  # o arquivo recém-criado para o clipboard Wayland. Assim Print, Shift+Print
+  # e Alt+Print preservam os dois comportamentos, sem usar um atalho duplicado
+  # que o compositor poderia descartar.
+  systemd.user.services.screenshot-keybindings = {
+    description = "Configura screenshots salvos pelo Gala";
+    after = [ "graphical-session.target" ];
+    wantedBy = [ "graphical-session.target" ];
+    serviceConfig.Type = "oneshot";
+    script = ''
+      ${pkgs.glib}/bin/gsettings set io.elementary.desktop.wm.keybindings screenshot "['Print']"
+      ${pkgs.glib}/bin/gsettings set io.elementary.desktop.wm.keybindings area-screenshot "['<Shift>Print']"
+      ${pkgs.glib}/bin/gsettings set io.elementary.desktop.wm.keybindings window-screenshot "['<Alt>Print']"
+      ${pkgs.glib}/bin/gsettings set io.elementary.desktop.wm.keybindings screenshot-clip '@as []'
+      ${pkgs.glib}/bin/gsettings set io.elementary.desktop.wm.keybindings area-screenshot-clip '@as []'
+      ${pkgs.glib}/bin/gsettings set io.elementary.desktop.wm.keybindings window-screenshot-clip '@as []'
+      ${pkgs.dconf}/bin/dconf write /io/elementary/screenshot/folder-dir "'/home/kanagawamarcos/Pictures/Screenshots'"
+    '';
+  };
+
+  systemd.user.services.screenshot-to-clipboard = {
+    description = "Copia screenshots salvos para o clipboard";
+    after = [ "graphical-session.target" ];
+    wantedBy = [ "graphical-session.target" ];
+    serviceConfig = {
+      Restart = "always";
+      RestartSec = 2;
+    };
+    script = ''
+      set -eu
+      screenshot_dir="$HOME/Pictures/Screenshots"
+      ${pkgs.coreutils}/bin/mkdir -p "$screenshot_dir"
+
+      ${pkgs.inotify-tools}/bin/inotifywait -m --quiet \
+        -e close_write -e moved_to --format '%w%f' "$screenshot_dir" |
+      while IFS= read -r screenshot; do
+        case "$screenshot" in
+          *.png) mime_type=image/png ;;
+          *.jpg|*.jpeg) mime_type=image/jpeg ;;
+          *) continue ;;
+        esac
+        ${pkgs.wl-clipboard}/bin/wl-copy --type "$mime_type" < "$screenshot"
+      done
+    '';
+  };
+
   # ==========================================================
   # BROWSERS
   # ==========================================================
