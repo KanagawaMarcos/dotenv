@@ -12,7 +12,7 @@ Config do sistema. Atualizada em **2026-09-14**.
 | Desktop | KDE Plasma 6 + SDDM | **Pantheon + LightDM** |
 | GPU | NVIDIA (`open = false`) | NVIDIA GA102, driver 595 (**`open = true`**) |
 | Swap | partição | **zram** |
-| Dual boot | — | Windows em disco separado, ESP própria |
+| Segundo NVMe | — | ext4 `storage`, montado em `/mnt/storage` |
 
 Hardware: Biostar B550GTA (BIOS 5.17), AMD, NVIDIA GA102 (RTX 30xx),
 2× NVMe de 1TB. Desktop.
@@ -30,13 +30,12 @@ A reinstalação em UEFI **foi feita e conferida**. Fase 1 concluída.
 > dá pra distinguir nem pelo tamanho. Use sempre PARTUUID/UUID.
 
 Os dois discos são **TEAM TM8FP4001T de 953,9G**, idênticos. O que os
-distingue de verdade é o serial (visível na etiqueta, útil na hora de
-desconectar um pra instalar o Windows) e os UUID:
+distinge de verdade é o serial (visível na etiqueta) e os UUID:
 
-| Papel | Serial do disco | ESP (PARTUUID / UUID) | root (UUID) |
+| Papel | Serial do disco | ESP (PARTUUID / UUID) | sistema de arquivos (UUID) |
 |---|---|---|---|
 | **NixOS** | `C1D307021B0901178259` | `a815cf7c-7067-4a6d-898f-3683c6243969` / `4587-D4ED` | `aa310bed-f9ca-4925-86be-78077712946a` (ext4 952,9G) |
-| **Livre — vai virar Windows** | `TPBF2007240030400210` | `ce83cee5-d9a6-48fa-89f4-3f006f6711d3` / `5598-8A92` | `cffb5b77-72ea-4192-853e-a1f9ef523bf9` (Ubuntu 26.04 antigo, ext4 952,8G) |
+| **Storage** | `TPBF2007240030400210` | — | `4a99c463-1a6c-43d1-a92e-16c15ec3a7f0` (ext4 953,9G, `/mnt/storage`) |
 
 Para saber qual é qual **no boot atual**:
 
@@ -71,7 +70,9 @@ verificado na máquina:
 | Grupos | `wheel uucp lp dialout networkmanager scanner docker` |
 | Restaurados | blender 5.1.1, obs |
 
-Falta a fase 2 (Windows) e a 3 (GRUB listando os dois).
+O segundo NVMe não é mais reservado para Windows: o Ubuntu foi apagado e o
+disco foi convertido em `storage`. A seção de dual boot abaixo permanece só
+como histórico para uma eventual mudança futura.
 
 ### Firmware: a BIOS reescreve a BootOrder
 
@@ -132,15 +133,17 @@ GRUB quebrar. Só limpe quando tiver certeza de que não vai precisar.
 
 ---
 
-## Plano (histórico)
+## Plano de dual boot (histórico; não executar no estado atual)
 
-Os **dois** discos foram apagados. Backup no Google Drive.
+O plano abaixo foi substituído em 2026-10-20: o disco antes destinado ao
+Windows agora é o volume `storage`. Não o reparticione sem antes migrar seus
+dados e atualizar esta configuração.
 
 Ordem das fases:
 
 1. ✅ **NixOS em UEFI** → passos 1–7 abaixo
-2. ⬜ **Windows** no outro disco, com o NVMe do NixOS **desconectado**
-3. ⬜ **Reconectar** e rodar `nixos-rebuild boot` pro GRUB listar os dois
+2. ⏸️ **Windows** no outro disco (plano pausado; o disco hoje é `storage`)
+3. ⏸️ **Reconectar** e rodar `nixos-rebuild boot` pro GRUB listar os dois
 
 Instalar o NixOS primeiro é de propósito: o instalador do Windows
 reescreve a ordem de boot EFI, então é melhor ele vir depois — e com o
@@ -293,9 +296,20 @@ O que **não** é declarativo e precisa ser refeito na mão:
 A config é um **flake** e mora neste repo. Não se copia mais nada para
 `/etc/nixos` — aponte o `nixos-rebuild` direto para o repo:
 
+### Política de mudanças
+
+`~/Git/dotenv` é a fonte canônica do sistema. Toda alteração declarativa deve
+ser feita aqui, validada e aplicada por `nixos build`, seguida de commit e push
+para `origin/main`. Não edite `/etc/nixos/configuration.nix`: é uma cópia
+legada, mantida apenas como referência da instalação.
+
+Segredos (chaves SSH/Age, tokens e cookies) e dados de aplicativos não entram
+em texto puro no Git. Use os arquivos `.age` já previstos para backups
+criptografados e mantenha as chaves privadas em backup seguro separado.
+
 ```bash
-sudo nixos-rebuild test   --flake ~/Git/dotenv#nixos   # aplica só até o próximo reboot
-sudo nixos-rebuild switch --flake ~/Git/dotenv#nixos   # confirma
+nixos build       # aplica ~/Git/dotenv#nixos de forma persistente
+nixos clean       # remove gerações antigas; elimina a possibilidade de rollback
 ```
 
 `#nixos` é o nome em `nixosConfigurations` no `flake.nix`. O
@@ -351,10 +365,11 @@ pacote: vale para um punhado deles, não para dezenas.
 
 ---
 
-## Dual boot com Windows
+## Dual boot com Windows (histórico; o disco hoje é `storage`)
 
-O Windows vai no disco que ainda tem o **Ubuntu antigo** (root UUID
-`cffb5b77-72ea-…`), com **ESP própria**. O outro é o do NixOS.
+Se esse plano for retomado, o Windows deverá usar o disco que hoje é
+`storage` (UUID `4a99c463-1a6c-43d1-a92e-16c15ec3a7f0`) após backup e
+reparticionamento. O outro é o do NixOS.
 
 **Não confie no nome do device** — ele troca entre boots. Descubra qual
 é qual no momento em que for mexer:

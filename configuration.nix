@@ -1,6 +1,6 @@
 # ============================================================
 # NixOS main system configuration
-# File: /etc/nixos/configuration.nix
+# Fonte canônica: ~/Git/dotenv/configuration.nix
 #
 # Máquina: nixos (AMD + NVIDIA GA102 / RTX 30xx)
 # NixOS 26.05 (Yarara) — Pantheon
@@ -9,7 +9,7 @@
 # boot, drivers, desktop, usuários, pacotes, serviços, etc.
 #
 # Qualquer mudança aqui só tem efeito após:
-#   sudo nixos-rebuild switch
+#   nixos build
 # ============================================================
 
 { config, pkgs, lib, inputs, ... }:
@@ -147,6 +147,22 @@ let
       mkdir -p $out/bin
       ln -s "$shell" $out/bin/chrome-headless-shell
     '';
+
+  # O AppImage permanece em ~/Applications (é o binário baixado), mas seu
+  # lançador e entrada de menu são declarados nesta configuração.
+  openmausbot = pkgs.writeShellScriptBin "openmausbot" ''
+    exec ${pkgs.appimage-run}/bin/appimage-run \
+      "$HOME/Applications/OpenMausBot-0.1.115-x86_64.AppImage" "$@"
+  '';
+
+  openmausbot-desktop = pkgs.makeDesktopItem {
+    name = "openmausbot";
+    desktopName = "OpenMausBot";
+    comment = "Open-source local AI bot workspace";
+    exec = "${openmausbot}/bin/openmausbot";
+    icon = "applications-internet";
+    categories = [ "Development" "Utility" ];
+  };
 in
 {
   # ==========================================================
@@ -157,6 +173,28 @@ in
   imports = [
     ./hardware-configuration.nix
   ];
+
+  # ==========================================================
+  # STORAGE — NVMe de dados separado
+  # ==========================================================
+  fileSystems."/mnt/storage" = {
+    device = "/dev/disk/by-uuid/4a99c463-1a6c-43d1-a92e-16c15ec3a7f0";
+    fsType = "ext4";
+    options = [ "defaults" "nofail" ];
+  };
+
+  # A raiz do ext4 nasce como root. Mantém o ponto de montagem utilizável
+  # pelo usuário local após cada boot, sem dar permissões especiais ao disco.
+  systemd.services.storage-owner = {
+    description = "Define o dono do volume /mnt/storage";
+    wantedBy = [ "multi-user.target" ];
+    after = [ "local-fs.target" ];
+    unitConfig.RequiresMountsFor = [ "/mnt/storage" ];
+    serviceConfig.Type = "oneshot";
+    script = ''
+      ${pkgs.coreutils}/bin/chown kanagawamarcos:users /mnt/storage
+    '';
+  };
 
   # ==========================================================
   # BOOTLOADER  —  UEFI + GRUB (preparado para dual boot Windows)
@@ -274,6 +312,13 @@ in
   # greeter do Pantheon; mantido explícito como o instalador gerou.
   # (O SDDM do KDE foi removido.)
   services.xserver.displayManager.lightdm.enable = true;
+
+  # Entra direto na sessão Pantheon ao iniciar o computador.
+  # A senha continua necessária para sudo e para desbloquear a tela.
+  services.displayManager.autoLogin = {
+    enable = true;
+    user = "kanagawamarcos";
+  };
 
   # ATENÇÃO: o Pantheon do 26.05 sobe em WAYLAND, não em X11.
   # Verificado na máquina:
@@ -534,7 +579,7 @@ in
 
     packages = with pkgs; [
       # === System / Dev ===
-      git git-lfs wget openssl zlib libgcc
+      git git-lfs wget openssl age zlib libgcc
       unzip                              # `hyperframes doctor` cobra um extrator
                                          # de archive; era a única dependência
                                          # faltando na máquina.
@@ -567,6 +612,10 @@ in
       #
       # O binário é um ELF de distro; quem o faz rodar aqui é o `programs.nix-ld`
       # já ligado mais acima.
+      #
+      # gemini-cli também vem do npm (`npm i -g @google/gemini-cli`), pelo
+      # mesmo motivo de ritmo: em 2026-10-13 o upstream estava na 0.63.0, o
+      # pinned na 0.42.0 e o unstable do lock na 0.47.0.
       codex
       tmux
       pciutils
@@ -631,11 +680,13 @@ in
 
       # === Communication ===
       thunderbird discord telegram-desktop signal-desktop
-      localsend
+      remmina                            # Cliente RDP para acessar o Windows na rede local
       trayscale                          # GUI do Tailscale (GTK4); ícone no tray via namarupa
+      rustdesk                            # Acesso remoto pelo iPhone, fora do caminho do Steam Link
 
       # === Gaming ===
       mangohud protonup-ng lutris heroic bottles godot
+      pcsx2                              # Emulador de PS2 (precisa da BIOS do console)
       kytyps5                            # Emulador de PS5 (overlays/kytyps5)
 
       # Companion dos periféricos Logitech (HID++). NÃO existe na revisão
@@ -700,6 +751,12 @@ in
     extraSetFlags = [ "--operator=kanagawamarcos" ];
   };
 
+  # Não sobe no boot: liga na mão com `sudo systemctl start tailscaled`
+  # quando precisar. Os dois units precisam sair do multi-user.target —
+  # o tailscaled-set tem `Wants=tailscaled.service` e o puxaria de volta.
+  systemd.services.tailscaled.wantedBy = lib.mkForce [ ];
+  systemd.services.tailscaled-set.wantedBy = lib.mkForce [ ];
+
   # Tray do wingpanel para apps com StatusNotifierItem (Trayscale, Discord…).
   # O wingpanel do Pantheon 8 não mostra esses ícones sozinho; o antigo
   # `wingpanel-indicator-ayatana` foi removido do nixpkgs (não funciona do
@@ -750,15 +807,58 @@ in
     };
   };
 
+  # Acesso remoto pelo iPhone. O processo roda dentro da sessão Wayland já
+  # autenticada — evita o serviço global do RustDesk, que não recebe o portal
+  # de screencast do Wayland. Não cria VPN nem altera a rota do Steam Link.
+  systemd.user.services.rustdesk = {
+    description = "RustDesk remote desktop host";
+    after = [ "graphical-session.target" ];
+    wantedBy = [ "graphical-session.target" ];
+    serviceConfig = {
+      ExecStart = "${pkgs.rustdesk}/bin/rustdesk --server";
+      Restart = "on-failure";
+      RestartSec = 5;
+    };
+  };
+
   # ==========================================================
   # BROWSERS
   # ==========================================================
   programs.firefox.enable = true;
 
+  # LocalSend (alternativa ao AirDrop com o iPhone). Pelo módulo, e não
+  # como pacote solto, porque ele abre a porta 53317 TCP/UDP no firewall;
+  # sem isso o iPhone não acha o PC.
+  programs.localsend.enable = true;
+
   # ==========================================================
   # SYSTEM PACKAGES
   # ==========================================================
   environment.systemPackages = with pkgs; [
+    # Interface reproduzível para a configuração canônica deste repositório.
+    (writeShellScriptBin "nixos" ''
+      case "$1" in
+        build)
+          if [ "$#" -eq 1 ]; then
+            exec ${sudo}/bin/sudo ${config.system.build.nixos-rebuild}/bin/nixos-rebuild \
+              switch --flake /home/kanagawamarcos/Git/dotenv#nixos
+          fi
+          ;;
+        clean)
+          shift
+          exec ${sudo}/bin/sudo ${pkgs.nix}/bin/nix-collect-garbage -d "$@"
+          ;;
+      esac
+
+      echo "Uso: nixos {build|clean [opções do nix-collect-garbage]}" >&2
+      exit 64
+    '')
+
+    # No escopo do sistema, para que a regra Polkit do GParted também seja
+    # instalada; assim ele abre normalmente pelo menu no Pantheon/Wayland.
+    gparted
+    openmausbot
+    openmausbot-desktop
     vim
     wget
     git

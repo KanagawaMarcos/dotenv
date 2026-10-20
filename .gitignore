@@ -1,5 +1,8 @@
 .claude/settings.local.json*
 
+# Saída local de `nix build` / `nixos-rebuild`; é um symlink para /nix/store.
+result
+
 # Monica: apenas os snapshots criptografados podem ser versionados.
 apps/monica/data/*
 !apps/monica/data/.gitkeep
