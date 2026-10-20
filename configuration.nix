@@ -840,13 +840,13 @@ in
       case "$1" in
         build)
           if [ "$#" -eq 1 ]; then
-            exec ${sudo}/bin/sudo ${config.system.build.nixos-rebuild}/bin/nixos-rebuild \
+            exec /run/wrappers/bin/sudo ${config.system.build.nixos-rebuild}/bin/nixos-rebuild \
               switch --flake /home/kanagawamarcos/Git/dotenv#nixos
           fi
           ;;
         clean)
           shift
-          exec ${sudo}/bin/sudo ${pkgs.nix}/bin/nix-collect-garbage -d "$@"
+          exec /run/wrappers/bin/sudo ${pkgs.nix}/bin/nix-collect-garbage -d "$@"
           ;;
       esac
 
