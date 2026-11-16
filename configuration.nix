@@ -232,6 +232,13 @@ in
   # no hardware detectado (discos, GPU, CPU, etc.)
   imports = [
     ./hardware-configuration.nix
+    # Módulo do NordVPN: só existe no canal unstable (ver seção NORDVPN).
+    # O `meta` é descartado porque o capítulo do manual (nordvpn.md) não
+    # consta nos redirects do manual deste nixpkgs e quebra o nixos-manual.
+    ({ config, lib, pkgs, ... }@args:
+      builtins.removeAttrs
+        (import "${inputs.nixpkgs-unstable}/nixos/modules/services/networking/nordvpn.nix" args)
+        [ "meta" ])
   ];
 
   # ==========================================================
@@ -629,6 +636,7 @@ in
       "uucp" "dialout"                   # Serial / Arduino / K40
       "scanner" "lp"                     # Scanner e impressora
       "docker"                           # ATENÇÃO: equivale a root
+      "nordvpn"                          # Usar o CLI/GUI do NordVPN sem sudo
       # Sem "adbusers": o grupo só existia via `programs.adb.enable`, removido
       # nesta revisão do nixpkgs (systemd 258 cuida do uaccess). Declará-lo aqui
       # falharia na ativação, porque o grupo não é criado por ninguém.
@@ -816,6 +824,20 @@ in
   # o tailscaled-set tem `Wants=tailscaled.service` e o puxaria de volta.
   systemd.services.tailscaled.wantedBy = lib.mkForce [ ];
   systemd.services.tailscaled-set.wantedBy = lib.mkForce [ ];
+
+  # ==========================================================
+  # NORDVPN
+  # ==========================================================
+  # Cliente oficial (CLI `nordvpn` + GUI `nordvpn-gui`). O nixpkgs pinado não
+  # tem nem o pacote nem o módulo, então ambos vêm do canal unstable: o módulo
+  # é importado lá em cima em `imports` e o pacote vem de `pkgs.unstable`.
+  # O módulo liga o systemd-resolved (o nordvpnd configura DNS por ele).
+  # Primeiro uso: `nordvpn login` (abre OAuth no navegador) e `nordvpn c`.
+  # Meshnet não é suportado no NixOS.
+  services.nordvpn = {
+    enable = true;
+    package = pkgs.unstable.nordvpn;
+  };
 
   # Tray do wingpanel para apps com StatusNotifierItem (Trayscale, Discord…).
   # O wingpanel do Pantheon 8 não mostra esses ícones sozinho; o antigo
