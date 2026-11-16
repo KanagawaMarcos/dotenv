@@ -685,6 +685,11 @@ in
       # mesmo motivo de ritmo: em 2026-10-13 o upstream estava na 0.63.0, o
       # pinned na 0.42.0 e o unstable do lock na 0.47.0.
       codex
+
+      # opencode do unstable: o pinned traz 1.15.10, o unstable do lock a
+      # 2.0.32 (mais nova até que o `opencode-ai` do npm, na 1.19.5 em
+      # 2026-11-16) — por isso não segue o caminho npm do claude-code.
+      unstable.opencode
       tmux
       pciutils
       mesa-demos
