@@ -30,6 +30,8 @@ Seções 0–4 já foram executadas. O que vale **hoje**:
 - O GRUB do NixOS lista o Windows via `useOSProber = true`
   (`configuration.nix`, bloco `boot.loader`).
 - `time.hardwareClockInLocalTime = true` já está na config.
+- ⬜ **Pendente no Windows:** desligar o Fast Startup e guardar a chave do
+  BitLocker (seção 2, passo 4).
 - O `/mnt/storage` não existe mais. A partição `Microsoft reserved`
   ainda carrega o UUID ext4 antigo `4a99c463-...`: **nunca monte esse UUID**.
 
@@ -118,18 +120,48 @@ Pontos do Ventoy:
    recovery). **Se o instalador não criar uma ESP nesse disco, é porque
    ele está enxergando a ESP do outro**: o disco do NixOS não foi
    desativado de verdade (foi o que aconteceu em 2026-11-17).
-4. Já no Windows:
-   - **Desligue o Fast Startup** (Opções de Energia → Escolher a função
-     dos botões → desmarcar "Ligar inicialização rápida"). Com ele ligado,
-     o NTFS fica marcado como sujo e o Linux monta só leitura.
-   - **BitLocker / criptografia do dispositivo:** o Win11 24H2+ liga
-     sozinho. **Guarde a chave de recuperação** (dá pra salvar no pen
-     drive, que tem espaço sobrando). Mudar a ordem de boot pode disparar
-     o pedido da chave.
-   - Opcional: deixar o Windows com o RTC em UTC
-     (`RealTimeIsUniversal=1` no registro) e remover
-     `time.hardwareClockInLocalTime` do NixOS. A config atual faz o
-     contrário (NixOS em horário local), e as duas formas funcionam.
+4. Já no Windows, no primeiro boot (pós-instalação):
+
+   | Item | Necessidade | Status |
+   |---|---|---|
+   | Fast Startup desligado | **Obrigatório** em dual boot | ⬜ conferir |
+   | Chave do BitLocker guardada | **Obrigatório se a criptografia estiver ligada** | ⬜ conferir |
+   | Relógio (RTC) | Nada a fazer: já tratado no NixOS | ✅ |
+
+   - **Fast Startup.** Com ele ligado, "Desligar" no Windows na verdade
+     **hiberna** o kernel e deixa o NTFS num estado "em uso". Se o Linux
+     escrever nesse disco, o Windows acorda sem saber das mudanças e
+     arquivos podem ser corrompidos. O NixOS normalmente recusa ou monta
+     só leitura. O Windows também pode deixar Wi-Fi, Bluetooth etc. num
+     estado estranho para o outro sistema.
+     Como desligar: Painel de Controle → Opções de Energia → *Escolher a
+     função dos botões de energia* → *Alterar configurações não
+     disponíveis no momento* → desmarcar **Ligar inicialização rápida**.
+     Para desligar também a hibernação, rode no PowerShell como admin:
+     `powercfg /h off`.
+   - **BitLocker / criptografia do dispositivo.** O Win11 24H2+ liga
+     sozinho quando se entra com conta Microsoft. O TPM só libera o disco
+     se o caminho de boot medido for o mesmo de sempre. **Nesta máquina o
+     risco é maior que o normal**: o Windows boota via chainload do GRUB
+     a partir de uma ESP compartilhada com o NixOS. Atualizar o GRUB,
+     mexer na BIOS ou bootar pelo F11 em vez do GRUB pode fazer o Windows
+     pedir a **chave de recuperação** de 48 dígitos. Sem ela, os dados do
+     Windows ficam inacessíveis.
+     - Conferir: Configurações → Privacidade e segurança → *Criptografia
+       do dispositivo*, ou `manage-bde -status` no terminal admin.
+     - Se estiver ligada: a chave fica em
+       <https://account.microsoft.com/devices/recoverykey>. Guarde uma
+       cópia fora do PC, por exemplo no gerenciador de senhas. **Não
+       versione a chave neste repositório** (política do `AGENTS.md`).
+     - Se o pedido da chave virar rotina a cada boot via GRUB, existem
+       duas saídas: suspender e reativar a proteção pelo Windows
+       (`manage-bde -protectors -disable C:` e depois `-enable`), para o
+       TPM aprender o caminho novo, ou desligar a criptografia.
+   - **Relógio.** O Windows guarda o RTC em horário local e o Linux em
+     UTC; sem ajuste, a hora pularia 3h a cada troca. Já está resolvido
+     pelo `time.hardwareClockInLocalTime = true` no NixOS. A alternativa
+     inversa é o Windows em UTC (`RealTimeIsUniversal=1` no registro) e
+     remover essa opção do NixOS. As duas funcionam, não misture.
 
 ## 3. Voltar para o NixOS
 
