@@ -308,12 +308,47 @@ Windows. Com o GRUB isso era impossível, porque ele não é assinado.
 | 4 | Conferir as assinaturas | `! pkexec $(command -v sbctl) verify`: `BOOTX64.EFI`, `systemd-bootx64.efi` e `EFI/Linux/*.efi` assinados | ✅ |
 | 5 | Reboot **com o Secure Boot desligado** e testar | menu do systemd-boot com as gerações + "Windows Boot Manager"; entrar nos dois | ✅ NixOS e Windows ok |
 | 6 | Placa em Setup Mode | `sbctl status` → `Setup Mode: ✗ Enabled`. Esta placa veio **sem chaves** (PK/KEK/db/dbx vazios). Se tiver chaves, na BIOS: Security → Secure Boot → Key Management → apagar a PK / "Reset To Setup Mode"; se existir "Factory Key Provision", deixe **Disabled** | ✅ já estava |
-| 7 | Registrar as chaves | `! pkexec $(command -v sbctl) enroll-keys --microsoft` → `Enrolled keys to the EFI variables!`. ⚠️ **Nunca sem `--microsoft`**: o Windows e a GPU deixariam de bootar | ⬜ |
-| 8 | Ligar o Secure Boot | BIOS: Secure Boot **Enabled**; Secure Boot Mode **Custom** (⚠️ **não** use *Standard*, que pode reinstalar as chaves de fábrica por cima das nossas); CSM **Disabled**; fTPM **Enabled** | ⬜ |
+| 7 | Registrar as chaves | `! pkexec $(command -v sbctl) enroll-keys --microsoft` → `Enrolled keys to the EFI variables!`. ⚠️ **Nunca sem `--microsoft`**: o Windows e a GPU deixariam de bootar. Depois, `sbctl status` mostra `Vendor Keys: microsoft` e aparecem as variáveis `PK`/`KEK`/`db` em `/sys/firmware/efi/efivars`. O "Setup Mode" só muda depois de reiniciar | ✅ |
+| 8 | Ligar o Secure Boot | BIOS da B550GTA, caminho no box abaixo | ⬜ |
 | 9 | Conferir no NixOS | `bootctl status` → `Secure Boot: enabled (user)`; `sbctl status` | ⬜ |
 | 10 | Conferir no Windows | `msinfo32` → Estado da Inicialização Segura **Ativado**; `tpm.msc` → TPM 2.0 pronto | ⬜ |
 | 11 | Testar o BF6 | Primeiro entrando pelo menu do systemd-boot. Se o Javelin disser "Secure Boot não ativado", reinicie e entre por **F11 → Windows Boot Manager** (direto do firmware, sem chainload) | ⬜ |
 | 12 | Limpeza | Apagar `/boot/loader/entries/nixos-generation-{1,2,3}.conf` (entradas velhas do systemd-boot, não assinadas), `\EFI\NixOS-boot\`, `/boot/grub`, `/boot/kernels` e, por último, `\EFI\grub-backup\` | ⬜ |
+
+### BIOS da Biostar B550GTA: caminho exato (passo 8)
+
+Fonte: manual oficial *BIOS User Guide B550GTA*
+(<https://www.biostar-europe.com/upload/Manual/AB55A-A4T_BIOS_200703.pdf>),
+seções 2 (Advanced) e 5 (Security). BIOS desta máquina: AMI, versão 5.17,
+de 2025-08-31.
+
+**Esta placa NÃO tem "Secure Boot Mode" (Standard/Custom) nem "Factory
+Key Provision".** O menu é este:
+
+1. **Advanced → CSM Configuration → CSM Support: `Disabled`** (o padrão de
+   fábrica é *Enabled*). O manual diz que o Secure Boot só ativa com o CSM
+   desligado. A RTX 3070 Ti tem GOP UEFI, então a imagem continua.
+2. **Advanced → Trusted Computing → Security Device Support: `Enabled`**
+   (padrão). É o TPM (fTPM da AMD). `bootctl status` já mostra
+   `TPM2 Support: yes`.
+3. **Security → Secure Boot → Secure Boot: `Enabled`.** Segundo o manual,
+   ele só ativa se a PK estiver registrada e a placa estiver em *user mode*,
+   o que o passo 7 garante.
+4. **Key Management** só aparece com o Secure Boot em *Enabled*. Opções:
+   - **Restore Factory keys**: ⚠️ **NÃO usar.** Grava as chaves de fábrica
+     (só Microsoft) por cima das nossas, e o NixOS para de bootar.
+   - **Reset To Setup Mode**: apaga todas as chaves (PK/KEK/db/dbx). Use
+     só para refazer o passo 7.
+   - PK / KEK / Authorized Signatures (db) / Forbidden Signatures (dbx):
+     Details / Export / Update / Append / Delete. Dá para conferir em
+     *Details* que a PK é a nossa (GUID do dono
+     `4a3a1b59-2e0d-497f-a447-3899504c91b7`, de `sbctl status`).
+5. **F10** para salvar e sair.
+
+Se o NixOS não bootar ("Secure Boot Violation"): volte em Security →
+Secure Boot: `Disabled`, boote o NixOS, rode `sbctl status` e confira se
+as chaves ainda são as nossas. Se não forem, faça Reset To Setup Mode e
+refaça o passo 7.
 
 ### Riscos e observações
 
