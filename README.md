@@ -8,7 +8,7 @@ Config do sistema. Atualizada em **2026-09-14**.
 | | Máquina antiga | Atual |
 |---|---|---|
 | NixOS | 25.11 | **26.05 (Yarara)** |
-| Boot | UEFI + systemd-boot | **UEFI + GRUB** (`device = "nodev"`) |
+| Boot | UEFI + systemd-boot | **UEFI + Lanzaboote** (systemd-boot assinado, Secure Boot; até 2026-11-17 era GRUB) |
 | Desktop | KDE Plasma 6 + SDDM | **Pantheon + LightDM** |
 | GPU | NVIDIA (`open = false`) | NVIDIA GA102, driver 595 (**`open = true`**) |
 | Swap | partição | **zram** |
@@ -71,7 +71,8 @@ verificado na máquina:
 | Restaurados | blender 5.1.1, obs |
 
 Em 2026-11-17 o segundo NVMe (ex-`storage`) recebeu o **Windows 11**, e o
-dual boot pelo GRUB está funcionando. Estado atual e roteiro:
+dual boot está funcionando. No mesmo dia o GRUB foi trocado pelo **Lanzaboote**
+(systemd-boot assinado), para permitir Secure Boot. Estado atual e roteiro:
 [`docs/dual-boot-windows.md`](docs/dual-boot-windows.md). As seções de dual
 boot abaixo ficam como histórico.
 
@@ -89,6 +90,14 @@ systemd-boot, que ainda ocupava o caminho removível.
 Solução na config: `boot.loader.grub.efiInstallAsRemovable = true` +
 `efi.canTouchEfiVariables = false`. Em vez de disputar a ordem, o GRUB
 passa a *ser* o `\EFI\BOOT\BOOTX64.EFI` que a placa já escolhe sozinha.
+
+> **Atualização 2026-11-17: o GRUB saiu, entrou o Lanzaboote.** A
+> solução é a mesma com outro bootloader: o Lanzaboote instala o
+> systemd-boot **assinado** em `\EFI\BOOT\BOOTX64.EFI` (e em
+> `\EFI\systemd\`) e não escreve na NVRAM, então continua com
+> `efi.canTouchEfiVariables = false`. As duas subseções seguintes valem
+> só para a fase GRUB. Detalhes e recuperação:
+> [`docs/dual-boot-windows.md`](docs/dual-boot-windows.md), seção 6.
 
 #### 🪤 Mudar essa opção exige `--install-bootloader`
 
@@ -131,6 +140,10 @@ sudo grep -a -m1 -oiE 'grub|systemd-boot' /boot/EFI/BOOT/BOOTX64.EFI
 a geração 3. Não atrapalham (nada os invoca), e servem de rede de
 segurança: **F11 → "Linux Boot Manager"** ainda boota a geração 3 se o
 GRUB quebrar. Só limpe quando tiver certeza de que não vai precisar.
+
+> Com o Lanzaboote, essas entradas (`/boot/loader/entries/nixos-generation-{1,2,3}.conf`)
+> aparecem no menu do systemd-boot, mas não são assinadas e falham com o
+> Secure Boot ligado. A remoção está no checklist da seção 6 do roteiro.
 
 ---
 
@@ -417,6 +430,10 @@ Depois de instalar, reconecte o disco do NixOS.
 systemd-boot só lista entradas da ESP que ele gerencia, então não
 enxergaria o Windows no outro disco (precisaria de `edk2-uefi-shell`
 como intermediário). O GRUB com `useOSProber` acha e faz chainload.
+
+> Isso deixou de valer em 2026-11-17: o Windows acabou instalado na
+> **mesma ESP** do NixOS, onde o systemd-boot o detecta sozinho. Por
+> isso foi possível trocar o GRUB pelo Lanzaboote.
 
 Depois de instalar o Windows, o menu dele vira o padrão. Para o GRUB
 voltar a aparecer e listar os dois:

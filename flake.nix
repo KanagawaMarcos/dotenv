@@ -17,6 +17,15 @@
     #   nix flake update nixpkgs-unstable   # só este input
     #   sudo nixos-rebuild switch --flake ~/Git/dotenv#nixos
     nixpkgs-unstable.url = "github:NixOS/nixpkgs/nixos-unstable";
+
+    # Secure Boot para o NixOS (systemd-boot + UKIs assinadas com chaves
+    # próprias). Necessário para o dual boot com Secure Boot ligado, que o
+    # anti-cheat do Battlefield 6 exige no Windows.
+    # Roteiro: docs/dual-boot-windows.md, seção "Secure Boot".
+    lanzaboote = {
+      url = "github:nix-community/lanzaboote/v1.2.0";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =

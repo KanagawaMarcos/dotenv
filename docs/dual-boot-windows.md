@@ -2,7 +2,7 @@
 
 Roteiro para (re)fazer o dual boot desta máquina a partir do zero, seja
 por uma pessoa ou por uma sessão nova do Claude. Escrito em 2026-11-17.
-Contexto de firmware, discos e GRUB: veja o [README](../README.md),
+Contexto de firmware e discos: veja o [README](../README.md),
 seções *Estado atual*, *Firmware: a BIOS reescreve a BootOrder* e
 *Dual boot com Windows*.
 
@@ -12,26 +12,32 @@ seções *Estado atual*, *Firmware: a BIOS reescreve a BootOrder* e
 > Para aplicar a config, use `nixos build` (= `nixos-rebuild switch
 > --flake ~/Git/dotenv#nixos`), nunca o `nixos-rebuild` direto.
 
-## Estado atual (2026-11-17): dual boot funcionando ✅
+## Estado atual (2026-11-17): dual boot funcionando ✅, Secure Boot em andamento
 
-Seções 0–4 já foram executadas. O que vale **hoje**:
+Seções 0–4 já foram executadas. Em seguida o GRUB foi trocado por
+**Lanzaboote** (systemd-boot assinado), para permitir Secure Boot, que o
+anti-cheat do Battlefield 6 exige no Windows. Seção 6. O que vale **hoje**:
 
 | | Disco "NixOS" | Disco "Windows" (ex-`storage`) |
 |---|---|---|
 | Serial | `C1D307021B0901178259` | `TPBF2007240030400210` |
 | Partições | ESP vfat `4587-D4ED` (`/boot`) + ext4 raiz | `Microsoft reserved` 16M + NTFS (sem ESP) |
-| Bootloaders na ESP | GRUB em `\EFI\BOOT\BOOTX64.EFI` **e** Windows em `\EFI\Microsoft\Boot\bootmgfw.efi` | — |
+| Bootloaders na ESP | systemd-boot assinado (Lanzaboote) em `\EFI\BOOT\BOOTX64.EFI` **e** Windows em `\EFI\Microsoft\Boot\bootmgfw.efi` | — |
 | Raiz | ext4 UUID `aa310bed-f9ca-4925-86be-78077712946a` | NTFS UUID `226A1DC16A1D9321` |
 
 - **A ESP do NixOS é compartilhada com o Windows** (o disco do NixOS
   estava visível na instalação). Detalhes e consequências na seção
   *Estado real após a instalação*, no fim. **Não reformate essa ESP sem
   antes salvar o `\EFI\Microsoft\`.**
-- O GRUB do NixOS lista o Windows via `useOSProber = true`
-  (`configuration.nix`, bloco `boot.loader`).
+- O systemd-boot lista o Windows **sozinho**: ele detecta o
+  `\EFI\Microsoft\Boot\bootmgfw.efi` na mesma ESP. Não há os-prober.
+  O menu fica 10 s na tela e o editor de cmdline está desligado
+  (`configuration.nix`, blocos `boot.loader` e `boot.lanzaboote`).
 - `time.hardwareClockInLocalTime = true` já está na config.
-- ⬜ **Pendente no Windows:** desligar o Fast Startup e guardar a chave do
-  BitLocker (seção 2, passo 4).
+- ✅ No Windows, o Fast Startup e o BitLocker estão **desligados**
+  (conferido em 2026-11-17). Se um dia ligar o BitLocker, leia a seção 2,
+  passo 4, antes.
+- Secure Boot: veja o checklist da seção 6.
 - O `/mnt/storage` não existe mais. A partição `Microsoft reserved`
   ainda carrega o UUID ext4 antigo `4a99c463-...`: **nunca monte esse UUID**.
 
@@ -112,7 +118,7 @@ Pontos do Ventoy:
    (confira pelo serial `C1D307021B0901178259`). É o passo mais
    importante: o instalador do Windows grava o bootloader dele em
    qualquer ESP que encontrar, e esta placa sempre boota
-   `\EFI\BOOT\BOOTX64.EFI`, que é justamente onde mora o GRUB.
+   `\EFI\BOOT\BOOTX64.EFI`, que é justamente onde mora o bootloader do NixOS.
 2. Boote pelo pen drive (**F11** = menu de boot da placa) → Ventoy →
    Windows.
 3. Instale no único disco visível (serial `TPBF2007240030400210`). Apague
@@ -142,9 +148,10 @@ Pontos do Ventoy:
    - **BitLocker / criptografia do dispositivo.** O Win11 24H2+ liga
      sozinho quando se entra com conta Microsoft. O TPM só libera o disco
      se o caminho de boot medido for o mesmo de sempre. **Nesta máquina o
-     risco é maior que o normal**: o Windows boota via chainload do GRUB
-     a partir de uma ESP compartilhada com o NixOS. Atualizar o GRUB,
-     mexer na BIOS ou bootar pelo F11 em vez do GRUB pode fazer o Windows
+     risco é maior que o normal**: o Windows boota via chainload do
+     systemd-boot (antes, do GRUB) a partir de uma ESP compartilhada com
+     o NixOS. Atualizar o bootloader, trocar as chaves do Secure Boot,
+     mexer na BIOS ou alternar entre o menu do NixOS e o F11 pode fazer o Windows
      pedir a **chave de recuperação** de 48 dígitos. Sem ela, os dados do
      Windows ficam inacessíveis.
      - Conferir: Configurações → Privacidade e segurança → *Criptografia
@@ -153,7 +160,7 @@ Pontos do Ventoy:
        <https://account.microsoft.com/devices/recoverykey>. Guarde uma
        cópia fora do PC, por exemplo no gerenciador de senhas. **Não
        versione a chave neste repositório** (política do `AGENTS.md`).
-     - Se o pedido da chave virar rotina a cada boot via GRUB, existem
+     - Se o pedido da chave virar rotina a cada boot pelo menu, existem
        duas saídas: suspender e reativar a proteção pelo Windows
        (`manage-bde -protectors -disable C:` e depois `-enable`), para o
        TPM aprender o caminho novo, ou desligar a criptografia.
@@ -174,7 +181,11 @@ Pontos do Ventoy:
      discos**. Não adianta usar o `efibootmgr -o`, porque esta placa
      reescreve a BootOrder (veja o README).
 
-## 4. Ajustar a config do NixOS
+## 4. Ajustar a config do NixOS (fase GRUB, histórico)
+
+> Esta seção registra como foi feito com GRUB + os-prober, antes do
+> Lanzaboote. Hoje o bootloader é o da seção 6 e o Windows aparece no
+> menu sem os-prober. Os passos 1–2 continuam valendo.
 
 1. **Remova o volume `storage`** do `configuration.nix`: o bloco
    `fileSystems."/mnt/storage"` e o serviço `systemd.services.storage-owner`.
@@ -213,28 +224,36 @@ boot.loader.grub.extraEntries = ''
 '';
 ```
 
-## 5. Recuperação: o GRUB sumiu
+## 5. Recuperação: o menu do NixOS sumiu
 
 Sintoma: a máquina vai direto para o Windows mesmo escolhendo o disco do
-NixOS no F11. Na ESP do NixOS o `\EFI\BOOT\BOOTX64.EFI` foi
-sobrescrito. Acontece quando o Windows usa a ESP do NixOS, como hoje, e
-uma instalação ou uma atualização grande grava o fallback dele ali.
+NixOS no F11. Na ESP do NixOS o `\EFI\BOOT\BOOTX64.EFI` (systemd-boot do
+Lanzaboote) foi sobrescrito. Acontece quando o Windows usa a ESP do
+NixOS, como hoje, e uma instalação ou uma atualização grande grava o
+fallback dele ali.
 
+0. **Desligue o Secure Boot na BIOS primeiro.** A ISO do NixOS e o
+   Ventoy 1.1.12 não são assinados para as chaves registradas nesta
+   placa e não bootam com ele ligado. As chaves continuam no firmware.
+   Depois de consertar, é só religar.
 1. Boote pelo pen drive → Ventoy → NixOS (live).
 2. Monte **pelo UUID** (os nomes de device trocam):
    ```bash
    sudo mount /dev/disk/by-uuid/aa310bed-f9ca-4925-86be-78077712946a /mnt
    sudo mount /dev/disk/by-uuid/4587-D4ED /mnt/boot
    ```
-3. Reinstale o bootloader a partir da geração atual:
+3. Reinstale o bootloader a partir da geração atual. O Lanzaboote assina
+   com as chaves de `/mnt/var/lib/sbctl`, que estão no disco do NixOS:
    ```bash
    sudo nixos-enter --root /mnt -c \
      'NIXOS_INSTALL_BOOTLOADER=1 /nix/var/nix/profiles/system/bin/switch-to-configuration boot'
    ```
-   A saída precisa conter `installing the GRUB 2 boot loader into /boot`.
+   A saída precisa conter `Installing /boot/EFI/BOOT/BOOTX64.EFI` e
+   `Successfully installed Lanzaboote`.
 4. Confira antes de reiniciar:
    ```bash
-   sudo grep -a -m1 -oiE 'grub|systemd-boot' /mnt/boot/EFI/BOOT/BOOTX64.EFI   # "grub"
+   sudo grep -a -m1 -oiE 'grub|systemd-boot' /mnt/boot/EFI/BOOT/BOOTX64.EFI   # "systemd-boot"
+   sudo nixos-enter --root /mnt -c 'sbctl verify'   # BOOTX64.EFI e EFI/Linux/*.efi assinados
    ```
 5. Se a ESP do NixOS tiver sido **apagada ou reformatada**, recrie com
    `mkfs.fat -F32 -i 4587D4ED` para manter o UUID que o
@@ -244,13 +263,88 @@ uma instalação ou uma atualização grande grava o fallback dele ali.
    devolva-a depois. Se não der, conserte pelo pen drive do Windows
    (Reparar → Prompt): `bcdboot C:\Windows /s <letra-da-ESP>: /f UEFI`.
 
-Rede de segurança extra: as sobras do systemd-boot (`\EFI\SYSTEMD\`,
-geração 3) continuam na ESP do NixOS. **F11 → "Linux Boot Manager"**
-ainda boota, se não tiverem sido limpas.
+Rede de segurança extra (só com Secure Boot desligado): enquanto não for
+limpo, o GRUB antigo está salvo em `\EFI\grub-backup\BOOTX64.EFI`, com o
+`grub.cfg` e os kernels em `/boot/grub` e `/boot/kernels`. Para voltar a
+ele, copie esse arquivo por cima de `\EFI\BOOT\BOOTX64.EFI`. Ele boota as
+gerações listadas no `grub.cfg` do último `nixos build` com GRUB.
+
+## 6. Secure Boot com Lanzaboote
+
+Objetivo: Secure Boot **sempre ligado**, com os dois sistemas bootando.
+O Battlefield 6 (anti-cheat Javelin) exige Secure Boot + TPM 2.0 no
+Windows. Com o GRUB isso era impossível, porque ele não é assinado.
+
+### Como funciona
+
+- O [Lanzaboote](https://github.com/nix-community/lanzaboote) (v1.2.0,
+  input `lanzaboote` no `flake.nix`) gera uma **UKI** por geração
+  (`\EFI\Linux\nixos-generation-N-*.efi`) e um systemd-boot, ambos
+  **assinados com chaves próprias** em `/var/lib/sbctl`.
+- As chaves são registradas no firmware **junto com as da Microsoft**
+  (`--microsoft`). Assim o firmware aceita o systemd-boot e as UKIs
+  (assinados pelas nossas chaves), o `bootmgfw.efi` do Windows e a option
+  ROM da NVIDIA (assinados pela Microsoft).
+- Conferido no código do lzbt (`rust/tool/systemd/src/install.rs`): ele
+  instala o systemd-boot assinado em `\EFI\BOOT\BOOTX64.EFI` **e** em
+  `\EFI\systemd\`, e não escreve na NVRAM. Por isso a manha da placa (que
+  sempre boota o `BOOTX64.EFI`) continua resolvida, e o
+  `canTouchEfiVariables = false` continua valendo.
+- O `sbctl verify` mostra ✗ em `EFI/Microsoft/*` e em
+  `EFI/nixos/kernel-*.efi`. **É esperado**: os do Windows são assinados pela
+  Microsoft, e os kernels são verificados por hash pela UKI assinada.
+- 🔐 **As chaves privadas em `/var/lib/sbctl` NUNCA vão para o Git.**
+  Se o disco do NixOS for perdido, gere chaves novas e registre de novo
+  (com o Secure Boot desligado, a placa em Setup Mode e `enroll-keys
+  --microsoft`).
+
+### Checklist (para refazer do zero, na ordem)
+
+| # | Passo | Comando / onde | Status (2026-11-17) |
+|---|---|---|---|
+| 1 | Backup do bootloader antigo | `! pkexec $(command -v install) -D -m644 /boot/EFI/BOOT/BOOTX64.EFI /boot/EFI/grub-backup/BOOTX64.EFI` | ✅ |
+| 2 | Criar as chaves | `! pkexec $(command -v sbctl) create-keys` (antes de aplicar a config, use o sbctl de `nix build nixpkgs#sbctl`) | ✅ |
+| 3 | Aplicar a config com Lanzaboote | `nixos build`, ou `! pkexec $(command -v nixos-rebuild) switch --flake ~/Git/dotenv#nixos`. A saída precisa ter `Installing /boot/EFI/BOOT/BOOTX64.EFI` | ✅ |
+| 4 | Conferir as assinaturas | `! pkexec $(command -v sbctl) verify`: `BOOTX64.EFI`, `systemd-bootx64.efi` e `EFI/Linux/*.efi` assinados | ✅ |
+| 5 | Reboot **com o Secure Boot desligado** e testar | menu do systemd-boot com as gerações + "Windows Boot Manager"; entrar nos dois | ✅ NixOS e Windows ok |
+| 6 | Placa em Setup Mode | `sbctl status` → `Setup Mode: ✗ Enabled`. Esta placa veio **sem chaves** (PK/KEK/db/dbx vazios). Se tiver chaves, na BIOS: Security → Secure Boot → Key Management → apagar a PK / "Reset To Setup Mode"; se existir "Factory Key Provision", deixe **Disabled** | ✅ já estava |
+| 7 | Registrar as chaves | `! pkexec $(command -v sbctl) enroll-keys --microsoft` → `Enrolled keys to the EFI variables!`. ⚠️ **Nunca sem `--microsoft`**: o Windows e a GPU deixariam de bootar | ⬜ |
+| 8 | Ligar o Secure Boot | BIOS: Secure Boot **Enabled**; Secure Boot Mode **Custom** (⚠️ **não** use *Standard*, que pode reinstalar as chaves de fábrica por cima das nossas); CSM **Disabled**; fTPM **Enabled** | ⬜ |
+| 9 | Conferir no NixOS | `bootctl status` → `Secure Boot: enabled (user)`; `sbctl status` | ⬜ |
+| 10 | Conferir no Windows | `msinfo32` → Estado da Inicialização Segura **Ativado**; `tpm.msc` → TPM 2.0 pronto | ⬜ |
+| 11 | Testar o BF6 | Primeiro entrando pelo menu do systemd-boot. Se o Javelin disser "Secure Boot não ativado", reinicie e entre por **F11 → Windows Boot Manager** (direto do firmware, sem chainload) | ⬜ |
+| 12 | Limpeza | Apagar `/boot/loader/entries/nixos-generation-{1,2,3}.conf` (entradas velhas do systemd-boot, não assinadas), `\EFI\NixOS-boot\`, `/boot/grub`, `/boot/kernels` e, por último, `\EFI\grub-backup\` | ⬜ |
+
+### Riscos e observações
+
+- **BF6 e chainload:** um relato no fórum da EA (não oficial) diz que o
+  Javelin falha quando o Windows é bootado por outro bootloader (GRUB/shim),
+  mesmo com o Secure Boot ligado, e mostra a mesma mensagem genérica de
+  "Secure Boot não ativado". Não há relato específico sobre o systemd-boot.
+  Se acontecer, use o F11 → Windows Boot Manager para jogar.
+- **Chaves próprias + Microsoft com o BF6:** não há confirmação oficial. Um
+  relato no fórum do CachyOS com essa mesma configuração diz que funcionou
+  ("gaming comfortably"), sem citar o jogo.
+- **dbx vazio:** a placa veio sem dbx, e o `sbctl --microsoft` não preenche
+  a dbx. Isso deixa o firmware sem a lista de bootloaders revogados. Com
+  a KEK da Microsoft registrada, o Windows Update consegue aplicar
+  atualizações da dbx. Para conferir:
+  `ls -l /sys/firmware/efi/efivars/dbx-*`.
+- **BitLocker:** desligado hoje. Se ligar, faça isso **depois** do passo 8,
+  para o TPM medir o caminho de boot já com o Secure Boot ligado, e
+  guarde a chave de recuperação (seção 2, passo 4).
+- **Ventoy com Secure Boot:** a 1.1.12 tem bugs de Secure Boot e o pen
+  drive não boota com as chaves desta placa. Para usar o pen drive,
+  desligue o Secure Boot temporariamente.
+- **Para desfazer tudo:** desligue o Secure Boot na BIOS (as chaves podem
+  ficar). Para voltar ao GRUB: reverta o commit do Lanzaboote, rode
+  `nixos build` e copie `\EFI\grub-backup\BOOTX64.EFI` para
+  `\EFI\BOOT\BOOTX64.EFI`, ou rode o `switch-to-configuration boot` com
+  `NIXOS_INSTALL_BOOTLOADER=1`.
 
 ## Estado real após a instalação (2026-11-17)
 
-Instalado e funcionando. O GRUB lista NixOS + Windows após `nixos build`
+Instalado e funcionando. Na fase GRUB, ele listou NixOS + Windows após `nixos build`
 (`Found Windows Boot Manager on /dev/nvme0n1p1@/EFI/Microsoft/Boot/bootmgfw.efi`).
 
 O que saiu diferente do plano:
@@ -261,12 +355,12 @@ O que saiu diferente do plano:
   ficou só com `Microsoft reserved` (16M) + NTFS. O `\EFI\BOOT\BOOTX64.EFI`
   (GRUB) **não** foi sobrescrito.
 - Consequências:
-  - O Windows **só boota com o disco do NixOS presente** (via GRUB, ou
+  - O Windows **só boota com o disco do NixOS presente** (pelo menu do NixOS, ou
     F11 → "Windows Boot Manager"). Se o disco do NixOS for removido ou a
     ESP reformatada, o Windows precisa de reparo (`bcdboot` a partir da
     mídia do Windows).
   - Grandes atualizações do Windows podem mexer na ESP do NixOS. Se o
-    GRUB sumir, siga a seção 5.
+    menu do NixOS sumir, siga a seção 5.
   - **Não reformate a ESP do NixOS** sem antes copiar `\EFI\Microsoft\`.
 - A partição `Microsoft reserved` de 16M **herdou a assinatura ext4 do
   antigo `storage`** (UUID `4a99c463-...`, label `storage`). O
@@ -288,3 +382,9 @@ O que saiu diferente do plano:
 - Instalador do Windows numa ESP de outro disco:
   <https://www.elevenforum.com/t/why-does-bootloader-always-get-messed-up-when-dual-boot-installing-on-another-drive.47813/post-755923>
 - wimlib: <https://wimlib.net/man1/wimexport.html>
+- Lanzaboote: <https://nix-community.github.io/lanzaboote/getting-started/prepare-your-system.html>,
+  <https://nix-community.github.io/lanzaboote/getting-started/enable-secure-boot.html>
+- BF6/Javelin e chainload (relato de usuário):
+  <https://forums.ea.com/discussions/battlefield-6-technical-issues-en/bf6-secureboot-is-not-enabled-but-it-is-enabled-%E2%80%94-dual-bootgrub-is-the-cause/13568958>
+- sbctl + Microsoft keys em dual boot com Javelin (relato de usuário):
+  <https://discuss.cachyos.org/t/issues-enabling-secure-boot-on-gigabyte-motherboard-for-dual-boot-windows-11-battlefield-6-javelin-anticheat/23444>

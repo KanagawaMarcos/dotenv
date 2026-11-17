@@ -232,6 +232,8 @@ in
   # no hardware detectado (discos, GPU, CPU, etc.)
   imports = [
     ./hardware-configuration.nix
+    # Secure Boot (ver seção BOOTLOADER).
+    inputs.lanzaboote.nixosModules.lanzaboote
     # Módulo do NordVPN: só existe no canal unstable (ver seção NORDVPN).
     # O `meta` é descartado porque o capítulo do manual (nordvpn.md) não
     # consta nos redirects do manual deste nixpkgs e quebra o nixos-manual.
@@ -251,45 +253,49 @@ in
   # Roteiro do dual boot: docs/dual-boot-windows.md
 
   # ==========================================================
-  # BOOTLOADER  —  UEFI + GRUB (preparado para dual boot Windows)
+  # BOOTLOADER  —  UEFI + Secure Boot via Lanzaboote (dual boot Windows)
   # ==========================================================
-  # Requer que o NixOS tenha sido instalado em modo UEFI, com uma
-  # partição ESP (FAT32, tipo EF00) montada em /boot.
-  # Confira com:  [ -d /sys/firmware/efi ] && echo UEFI || echo LEGACY
+  # Requer instalação em UEFI, com a ESP (FAT32) montada em /boot.
+  # Roteiro completo e recuperação: docs/dual-boot-windows.md
   #
-  # Por que GRUB e não systemd-boot: o systemd-boot só enxerga
-  # entradas dentro da ESP que ele mesmo gerencia. Com o Windows num
-  # OUTRO disco, com ESP própria, ele NÃO lista o Windows. O GRUB com
-  # os-prober acha e faz chainload da ESP do outro disco.
+  # POR QUE LANZABOOTE: o anti-cheat do Battlefield 6 (Javelin) exige
+  # Secure Boot ligado no Windows. O GRUB do NixOS não é assinado, então
+  # com Secure Boot ligado a placa o recusaria. O Lanzaboote gera UKIs
+  # (kernel + initrd + cmdline num .efi só) e um systemd-boot, todos
+  # assinados com chaves próprias em /var/lib/sbctl. Essas chaves são
+  # registradas no firmware JUNTO com as da Microsoft
+  # (`sbctl enroll-keys --microsoft`), então o Windows e a option ROM da
+  # NVIDIA continuam bootando.
   #
-  # POR QUE `efiInstallAsRemovable` (e `canTouchEfiVariables = false`):
-  # o firmware AMI desta Biostar B550GTA REESCREVE a BootOrder da NVRAM
-  # a cada boot. Ele varre os discos, recria a entrada genérica
-  # "UEFI OS" -> \EFI\BOOT\BOOTX64.EFI e a coloca no topo, descartando
-  # qualquer ordem gravada com `efibootmgr -o`. Testado: a ordem foi
-  # gravada, confirmada na NVRAM, e voltou sozinha no reboot seguinte.
+  # WINDOWS NO MENU: o Windows Boot Manager está na MESMA ESP do NixOS
+  # (\EFI\Microsoft\Boot\bootmgfw.efi). O systemd-boot detecta isso
+  # sozinho e mostra a entrada "Windows Boot Manager", sem os-prober.
+  # (Antes usávamos GRUB justamente porque o systemd-boot não enxerga
+  # ESPs de outros discos; com a ESP compartilhada, isso deixou de importar.)
   #
-  # Como não dá para vencer a ordem, o GRUB passa a SER o arquivo que
-  # a placa insiste em bootar: `efiInstallAsRemovable` instala o GRUB
-  # em \EFI\BOOT\BOOTX64.EFI (o caminho removível padrão do UEFI).
-  # Isso também sobrescreve a cópia do systemd-boot que estava lá.
-  #
-  # As duas opções são mutuamente exclusivas por assertion do NixOS:
-  # com `efiInstallAsRemovable` o NixOS não mexe mais na NVRAM.
-  # Se um dia trocar de placa-mãe, o certo é voltar para
-  # `canTouchEfiVariables = true` + `efiInstallAsRemovable = false`.
+  # FIRMWARE: a Biostar B550GTA (AMI) REESCREVE a BootOrder a cada boot e
+  # sempre boota \EFI\BOOT\BOOTX64.EFI. O lzbt instala o systemd-boot
+  # assinado exatamente nesse caminho (além de \EFI\systemd\), e não
+  # escreve na NVRAM, então isso continua funcionando.
   boot.loader = {
     efi.canTouchEfiVariables = false;  # A placa ignora a NVRAM; não adianta escrever
     efi.efiSysMountPoint = "/boot";    # Onde a ESP está montada
 
-    grub = {
-      enable = true;
-      efiSupport = true;
-      efiInstallAsRemovable = true;    # GRUB vai para \EFI\BOOT\BOOTX64.EFI
-      device = "nodev";                # Em UEFI é SEMPRE "nodev", nunca o disco
-      useOSProber = true;              # Detecta o Windows no outro disco
-      configurationLimit = 20;         # Não deixa o menu virar uma lista infinita
-    };
+    # O Lanzaboote substitui o módulo do systemd-boot; o GRUB sai de cena.
+    grub.enable = false;
+    systemd-boot.enable = lib.mkForce false;
+    timeout = 10;                      # Segundos no menu antes do padrão
+  };
+
+  boot.lanzaboote = {
+    enable = true;
+    pkiBundle = "/var/lib/sbctl";      # Criado por `sbctl create-keys`
+    # Cada geração vira uma UKI de dezenas de MB na ESP de 1G (compartilhada
+    # com o Windows); 10 gerações deixam folga.
+    configurationLimit = 10;
+    # Sem editor de cmdline no menu: com Secure Boot, editar os parâmetros
+    # do kernel no boot (ex.: init=/bin/sh) furaria a cadeia de confiança.
+    settings.editor = false;
   };
 
   # Windows grava o RTC em horário local; o Linux usa UTC. Sem isto o
@@ -959,6 +965,10 @@ in
   # SYSTEM PACKAGES
   # ==========================================================
   environment.systemPackages = with pkgs; [
+    # Secure Boot: gerar/registrar chaves e conferir assinaturas (Lanzaboote).
+    sbctl
+    efibootmgr
+
     # Interface reproduzível para a configuração canônica deste repositório.
     (writeShellScriptBin "nixos" ''
       case "$1" in
