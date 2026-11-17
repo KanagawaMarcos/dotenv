@@ -197,6 +197,34 @@ Rede de segurança extra: as sobras do systemd-boot (`\EFI\SYSTEMD\`,
 geração 3) continuam na ESP do NixOS. **F11 → "Linux Boot Manager"**
 ainda boota, se não tiverem sido limpas.
 
+## Estado real após a instalação (2026-11-17)
+
+Instalado e funcionando. O GRUB lista NixOS + Windows após `nixos build`
+(`Found Windows Boot Manager on /dev/nvme0n1p1@/EFI/Microsoft/Boot/bootmgfw.efi`).
+
+O que saiu diferente do plano:
+
+- **O disco do NixOS estava visível durante a instalação.** Por isso o
+  Windows **não criou ESP própria**: gravou o bootloader em
+  `\EFI\Microsoft\` da **ESP do NixOS** (`4587-D4ED`). O disco do Windows
+  ficou só com `Microsoft reserved` (16M) + NTFS. O `\EFI\BOOT\BOOTX64.EFI`
+  (GRUB) **não** foi sobrescrito.
+- Consequências:
+  - O Windows **só boota com o disco do NixOS presente** (via GRUB, ou
+    F11 → "Windows Boot Manager"). Se o disco do NixOS for removido ou a
+    ESP reformatada, o Windows precisa de reparo (`bcdboot` a partir da
+    mídia do Windows).
+  - Grandes atualizações do Windows podem mexer na ESP do NixOS. Se o
+    GRUB sumir, siga a seção 5.
+  - **Não reformate a ESP do NixOS** sem antes copiar `\EFI\Microsoft\`.
+- A partição `Microsoft reserved` de 16M **herdou a assinatura ext4 do
+  antigo `storage`** (UUID `4a99c463-...`, label `storage`). O
+  `fileSystems."/mnt/storage"` foi removido do `configuration.nix` para
+  não montá-la. Não reutilize esse UUID.
+- Se for refazer do zero e quiser discos 100% independentes: **desative
+  o NVMe do NixOS na BIOS de verdade** (ou desconecte) antes do
+  instalador. Confira no instalador do Windows que só um disco aparece.
+
 ## Fontes consultadas (2026-11-17)
 
 - Ventoy: <https://www.ventoy.net/en/doc_news.html>,

@@ -242,26 +242,13 @@ in
   ];
 
   # ==========================================================
-  # STORAGE — NVMe de dados separado
+  # SEGUNDO NVMe — agora é o disco do Windows 11 (2026-11-17)
   # ==========================================================
-  fileSystems."/mnt/storage" = {
-    device = "/dev/disk/by-uuid/4a99c463-1a6c-43d1-a92e-16c15ec3a7f0";
-    fsType = "ext4";
-    options = [ "defaults" "nofail" ];
-  };
-
-  # A raiz do ext4 nasce como root. Mantém o ponto de montagem utilizável
-  # pelo usuário local após cada boot, sem dar permissões especiais ao disco.
-  systemd.services.storage-owner = {
-    description = "Define o dono do volume /mnt/storage";
-    wantedBy = [ "multi-user.target" ];
-    after = [ "local-fs.target" ];
-    unitConfig.RequiresMountsFor = [ "/mnt/storage" ];
-    serviceConfig.Type = "oneshot";
-    script = ''
-      ${pkgs.coreutils}/bin/chown kanagawamarcos:users /mnt/storage
-    '';
-  };
+  # O antigo volume ext4 `storage` (UUID 4a99c463-...) foi apagado pelo
+  # instalador do Windows. NÃO volte a montar esse UUID: a assinatura
+  # ext4 sobreviveu dentro da partição "Microsoft reserved" de 16M, e
+  # montá-la escreveria por cima de uma partição do Windows.
+  # Roteiro do dual boot: docs/dual-boot-windows.md
 
   # ==========================================================
   # BOOTLOADER  —  UEFI + GRUB (preparado para dual boot Windows)
