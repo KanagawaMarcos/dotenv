@@ -12,19 +12,29 @@ seções *Estado atual*, *Firmware: a BIOS reescreve a BootOrder* e
 > Para aplicar a config, use `nixos build` (= `nixos-rebuild switch
 > --flake ~/Git/dotenv#nixos`), nunca o `nixos-rebuild` direto.
 
-## Resumo da arquitetura
+## Estado atual (2026-11-17): dual boot funcionando ✅
 
-| | Disco "NixOS" | Disco "Windows" (hoje `storage`) |
+Seções 0–4 já foram executadas. O que vale **hoje**:
+
+| | Disco "NixOS" | Disco "Windows" (ex-`storage`) |
 |---|---|---|
 | Serial | `C1D307021B0901178259` | `TPBF2007240030400210` |
-| ESP | própria, UUID `4587-D4ED`, em `/boot` | própria, criada pelo instalador do Windows |
-| Bootloader | GRUB em `\EFI\BOOT\BOOTX64.EFI` (`efiInstallAsRemovable`) | Windows Boot Manager |
-| Raiz | ext4 UUID `aa310bed-f9ca-4925-86be-78077712946a` | NTFS |
+| Partições | ESP vfat `4587-D4ED` (`/boot`) + ext4 raiz | `Microsoft reserved` 16M + NTFS (sem ESP) |
+| Bootloaders na ESP | GRUB em `\EFI\BOOT\BOOTX64.EFI` **e** Windows em `\EFI\Microsoft\Boot\bootmgfw.efi` | — |
+| Raiz | ext4 UUID `aa310bed-f9ca-4925-86be-78077712946a` | NTFS UUID `226A1DC16A1D9321` |
 
-- **Cada disco tem a própria ESP.** Nunca compartilhar.
+- **A ESP do NixOS é compartilhada com o Windows** (o disco do NixOS
+  estava visível na instalação). Detalhes e consequências na seção
+  *Estado real após a instalação*, no fim. **Não reformate essa ESP sem
+  antes salvar o `\EFI\Microsoft\`.**
 - O GRUB do NixOS lista o Windows via `useOSProber = true`
   (`configuration.nix`, bloco `boot.loader`).
 - `time.hardwareClockInLocalTime = true` já está na config.
+- O `/mnt/storage` não existe mais. A partição `Microsoft reserved`
+  ainda carrega o UUID ext4 antigo `4a99c463-...`: **nunca monte esse UUID**.
+
+O plano original (refazer do zero) previa **uma ESP por disco**, que é
+o ideal. As seções abaixo descrevem esse plano.
 
 > 🚨 Os nomes `nvme0n1` e `nvme1n1` **trocam entre boots**. Sempre
 > identifique os discos por serial ou UUID:
@@ -35,8 +45,8 @@ seções *Estado atual*, *Firmware: a BIOS reescreve a BootOrder* e
 
 ## 0. Antes de começar
 
-- [ ] **Backup do `/mnt/storage`.** O Windows vai para esse disco e a
-      partição ext4 inteira será apagada.
+- [ ] **Backup do disco de destino.** O instalador do Windows apaga o
+      que estiver nele.
 - [ ] Anote o serial do disco do NixOS (tabela acima) para reconhecê-lo
       na BIOS ou na etiqueta.
 - [ ] Secure Boot **desligado** (estado atual: `bootctl status` →
@@ -103,8 +113,11 @@ Pontos do Ventoy:
    `\EFI\BOOT\BOOTX64.EFI`, que é justamente onde mora o GRUB.
 2. Boote pelo pen drive (**F11** = menu de boot da placa) → Ventoy →
    Windows.
-3. Instale no único disco visível (o ex-`storage`). Apague as partições
-   dele e deixe o instalador criar as dele (ESP, MSR, NTFS, recovery).
+3. Instale no único disco visível (serial `TPBF2007240030400210`). Apague
+   as partições dele e deixe o instalador criar as dele (ESP, MSR, NTFS,
+   recovery). **Se o instalador não criar uma ESP nesse disco, é porque
+   ele está enxergando a ESP do outro**: o disco do NixOS não foi
+   desativado de verdade (foi o que aconteceu em 2026-11-17).
 4. Já no Windows:
    - **Desligue o Fast Startup** (Opções de Energia → Escolher a função
      dos botões → desmarcar "Ligar inicialização rápida"). Com ele ligado,
@@ -121,8 +134,9 @@ Pontos do Ventoy:
 ## 3. Voltar para o NixOS
 
 1. Reative ou reconecte o disco do NixOS.
-2. Se a placa bootar direto no Windows: os dois discos agora têm um
-   `\EFI\BOOT\BOOTX64.EFI`, e a placa pode escolher o do Windows.
+2. Se a placa bootar direto no Windows: com uma ESP por disco, os dois
+   discos têm um `\EFI\BOOT\BOOTX64.EFI`, e a placa pode escolher o do
+   Windows. (Com a ESP compartilhada, como hoje, isso não acontece.)
    - **F11** → escolha o NVMe do NixOS.
    - Na BIOS, coloque o NVMe do NixOS em primeiro na **prioridade de
      discos**. Não adianta usar o `efibootmgr -o`, porque esta placa
@@ -132,10 +146,10 @@ Pontos do Ventoy:
 
 1. **Remova o volume `storage`** do `configuration.nix`: o bloco
    `fileSystems."/mnt/storage"` e o serviço `systemd.services.storage-owner`.
-   Como ele tem `nofail`, o sistema boota mesmo sem esse disco, mas a
-   config fica mentindo.
-2. Atualize o README: o disco "Storage" virou "Windows".
-3. Aplique:
+   ✅ feito no commit `4e2dac2`. Não basta confiar no `nofail`: o UUID
+   antigo sobrevive na partição `Microsoft reserved`.
+2. Atualize o README: o disco "Storage" virou "Windows". ✅ feito.
+3. Aplique (num terminal próprio, porque usa `sudo` e pede senha):
    ```bash
    nixos build
    ```
@@ -143,7 +157,7 @@ Pontos do Ventoy:
    `--install-bootloader`, porque nada no binário do GRUB mudou.
 4. Confira:
    ```bash
-   grep -i -A3 'windows' /boot/grub/grub.cfg
+   sudo grep -i -A3 'windows' /boot/grub/grub.cfg   # /boot é só do root
    # esperado: menuentry 'Windows Boot Manager (on /dev/nvmeXn1p1)' ...
    ```
 5. Reinicie: o GRUB deve listar NixOS e Windows. Teste os dois.
@@ -151,9 +165,10 @@ Pontos do Ventoy:
 
 ### Se o os-prober não achar o Windows
 
-Adicione uma entrada manual, apontando pelo UUID da ESP do Windows
-(`lsblk -o NAME,UUID,FSTYPE,PARTTYPENAME`, a partição vfat "EFI System"
-do disco do Windows):
+Adicione uma entrada manual, apontando pelo UUID da ESP que contém
+`\EFI\Microsoft\` (hoje é a própria ESP do NixOS, `4587-D4ED`; com uma
+ESP por disco, é a vfat "EFI System" do disco do Windows, que aparece em
+`lsblk -o NAME,UUID,FSTYPE,PARTTYPENAME`):
 
 ```nix
 boot.loader.grub.extraEntries = ''
@@ -170,8 +185,8 @@ boot.loader.grub.extraEntries = ''
 
 Sintoma: a máquina vai direto para o Windows mesmo escolhendo o disco do
 NixOS no F11. Na ESP do NixOS o `\EFI\BOOT\BOOTX64.EFI` foi
-sobrescrito. Isso só acontece se o disco do NixOS estava visível durante
-a instalação.
+sobrescrito. Acontece quando o Windows usa a ESP do NixOS, como hoje, e
+uma instalação ou uma atualização grande grava o fallback dele ali.
 
 1. Boote pelo pen drive → Ventoy → NixOS (live).
 2. Monte **pelo UUID** (os nomes de device trocam):
@@ -192,6 +207,10 @@ a instalação.
 5. Se a ESP do NixOS tiver sido **apagada ou reformatada**, recrie com
    `mkfs.fat -F32 -i 4587D4ED` para manter o UUID que o
    `hardware-configuration.nix` espera. Depois repita os passos 2–4.
+   ⚠️ Isso também apaga o bootloader do Windows (`\EFI\Microsoft\`).
+   Antes de reformatar, copie essa pasta, se ela ainda existir, e
+   devolva-a depois. Se não der, conserte pelo pen drive do Windows
+   (Reparar → Prompt): `bcdboot C:\Windows /s <letra-da-ESP>: /f UEFI`.
 
 Rede de segurança extra: as sobras do systemd-boot (`\EFI\SYSTEMD\`,
 geração 3) continuam na ESP do NixOS. **F11 → "Linux Boot Manager"**

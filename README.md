@@ -12,7 +12,7 @@ Config do sistema. Atualizada em **2026-09-14**.
 | Desktop | KDE Plasma 6 + SDDM | **Pantheon + LightDM** |
 | GPU | NVIDIA (`open = false`) | NVIDIA GA102, driver 595 (**`open = true`**) |
 | Swap | partição | **zram** |
-| Segundo NVMe | — | ext4 `storage`, montado em `/mnt/storage` |
+| Segundo NVMe | — | **Windows 11** (NTFS; desde 2026-11-17, antes ext4 `storage`) |
 
 Hardware: Biostar B550GTA (BIOS 5.17), AMD, NVIDIA GA102 (RTX 30xx),
 2× NVMe de 1TB. Desktop.
@@ -35,7 +35,7 @@ distinge de verdade é o serial (visível na etiqueta) e os UUID:
 | Papel | Serial do disco | ESP (PARTUUID / UUID) | sistema de arquivos (UUID) |
 |---|---|---|---|
 | **NixOS** | `C1D307021B0901178259` | `a815cf7c-7067-4a6d-898f-3683c6243969` / `4587-D4ED` | `aa310bed-f9ca-4925-86be-78077712946a` (ext4 952,9G) |
-| **Storage** | `TPBF2007240030400210` | — | `4a99c463-1a6c-43d1-a92e-16c15ec3a7f0` (ext4 953,9G, `/mnt/storage`) |
+| **Windows** | `TPBF2007240030400210` | — (usa a ESP do NixOS) | NTFS `226A1DC16A1D9321`. ⚠️ A partição `Microsoft reserved` ainda tem o UUID ext4 antigo `4a99c463-...`: nunca montar |
 
 Para saber qual é qual **no boot atual**:
 
@@ -70,9 +70,10 @@ verificado na máquina:
 | Grupos | `wheel uucp lp dialout networkmanager scanner docker` |
 | Restaurados | blender 5.1.1, obs |
 
-O segundo NVMe não é mais reservado para Windows: o Ubuntu foi apagado e o
-disco foi convertido em `storage`. A seção de dual boot abaixo permanece só
-como histórico para uma eventual mudança futura.
+Em 2026-11-17 o segundo NVMe (ex-`storage`) recebeu o **Windows 11**, e o
+dual boot pelo GRUB está funcionando. Estado atual e roteiro:
+[`docs/dual-boot-windows.md`](docs/dual-boot-windows.md). As seções de dual
+boot abaixo ficam como histórico.
 
 ### Firmware: a BIOS reescreve a BootOrder
 
@@ -147,8 +148,8 @@ dados e atualizar esta configuração.
 Ordem das fases:
 
 1. ✅ **NixOS em UEFI** → passos 1–7 abaixo
-2. ⏸️ **Windows** no outro disco (plano pausado; o disco hoje é `storage`)
-3. ⏸️ **Reconectar** e rodar `nixos-rebuild boot` pro GRUB listar os dois
+2. ✅ **Windows** no outro disco (2026-11-17)
+3. ✅ `nixos build` → o os-prober achou o Windows e o GRUB lista os dois
 
 Instalar o NixOS primeiro é de propósito: o instalador do Windows
 reescreve a ordem de boot EFI, então é melhor ele vir depois — e com o
