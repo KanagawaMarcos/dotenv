@@ -135,6 +135,11 @@ GRUB quebrar. Só limpe quando tiver certeza de que não vai precisar.
 
 ## Plano de dual boot (histórico; não executar no estado atual)
 
+> ➡️ **Roteiro atualizado e reproduzível (2026-11-17):**
+> [`docs/dual-boot-windows.md`](docs/dual-boot-windows.md). Ele prevalece
+> sobre o texto abaixo (pen drive Ventoy, ordem de instalação, `nixos build`,
+> recuperação do GRUB pela ISO do NixOS).
+
 O plano abaixo foi substituído em 2026-10-20: o disco antes destinado ao
 Windows agora é o volume `storage`. Não o reparticione sem antes migrar seus
 dados e atualizar esta configuração.
@@ -366,6 +371,11 @@ pacote: vale para um punhado deles, não para dezenas.
 ---
 
 ## Dual boot com Windows (histórico; o disco hoje é `storage`)
+
+> ➡️ **Roteiro atualizado e reproduzível (2026-11-17):**
+> [`docs/dual-boot-windows.md`](docs/dual-boot-windows.md). Ele prevalece
+> sobre o texto abaixo (pen drive Ventoy, ordem de instalação, `nixos build`,
+> recuperação do GRUB pela ISO do NixOS).
 
 Se esse plano for retomado, o Windows deverá usar o disco que hoje é
 `storage` (UUID `4a99c463-1a6c-43d1-a92e-16c15ec3a7f0`) após backup e
