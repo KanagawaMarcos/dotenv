@@ -12,7 +12,7 @@ seções *Estado atual*, *Firmware: a BIOS reescreve a BootOrder* e
 > Para aplicar a config, use `nixos build` (= `nixos-rebuild switch
 > --flake ~/Git/dotenv#nixos`), nunca o `nixos-rebuild` direto.
 
-## Estado atual (2026-11-17): dual boot funcionando ✅, Secure Boot em andamento
+## Estado atual (2026-11-17): dual boot funcionando ✅, Secure Boot ligado ✅
 
 Seções 0–4 já foram executadas. Em seguida o GRUB foi trocado por
 **Lanzaboote** (systemd-boot assinado), para permitir Secure Boot, que o
@@ -309,8 +309,8 @@ Windows. Com o GRUB isso era impossível, porque ele não é assinado.
 | 5 | Reboot **com o Secure Boot desligado** e testar | menu do systemd-boot com as gerações + "Windows Boot Manager"; entrar nos dois | ✅ NixOS e Windows ok |
 | 6 | Placa em Setup Mode | `sbctl status` → `Setup Mode: ✗ Enabled`. Esta placa veio **sem chaves** (PK/KEK/db/dbx vazios). Se tiver chaves, na BIOS: Security → Secure Boot → Key Management → apagar a PK / "Reset To Setup Mode"; se existir "Factory Key Provision", deixe **Disabled** | ✅ já estava |
 | 7 | Registrar as chaves | `! pkexec $(command -v sbctl) enroll-keys --microsoft` → `Enrolled keys to the EFI variables!`. ⚠️ **Nunca sem `--microsoft`**: o Windows e a GPU deixariam de bootar. Depois, `sbctl status` mostra `Vendor Keys: microsoft` e aparecem as variáveis `PK`/`KEK`/`db` em `/sys/firmware/efi/efivars`. O "Setup Mode" só muda depois de reiniciar | ✅ |
-| 8 | Ligar o Secure Boot | BIOS da B550GTA, caminho no box abaixo | ⬜ |
-| 9 | Conferir no NixOS | `bootctl status` → `Secure Boot: enabled (user)`; `sbctl status` | ⬜ |
+| 8 | Ligar o Secure Boot | BIOS da B550GTA, caminho no box abaixo | ✅ |
+| 9 | Conferir no NixOS | `bootctl status` → `Secure Boot: enabled (user)`; `sbctl status` → `Setup Mode: ✓ Disabled`, `Secure Boot: ✓ Enabled`. Driver NVIDIA 595 carrega normal (o kernel do NixOS não ativa lockdown, então módulos fora da árvore não são barrados) | ✅ |
 | 10 | Conferir no Windows | `msinfo32` → Estado da Inicialização Segura **Ativado**; `tpm.msc` → TPM 2.0 pronto | ⬜ |
 | 11 | Testar o BF6 | Primeiro entrando pelo menu do systemd-boot. Se o Javelin disser "Secure Boot não ativado", reinicie e entre por **F11 → Windows Boot Manager** (direto do firmware, sem chainload) | ⬜ |
 | 12 | Limpeza | Apagar `/boot/loader/entries/nixos-generation-{1,2,3}.conf` (entradas velhas do systemd-boot, não assinadas), `\EFI\NixOS-boot\`, `/boot/grub`, `/boot/kernels` e, por último, `\EFI\grub-backup\` | ⬜ |
