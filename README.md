@@ -72,9 +72,14 @@ verificado na máquina:
 
 Em 2026-11-17 o segundo NVMe (ex-`storage`) recebeu o **Windows 11**, e o
 dual boot está funcionando. No mesmo dia o GRUB foi trocado pelo **Lanzaboote**
-(systemd-boot assinado), para permitir Secure Boot. Estado atual e roteiro:
-[`docs/dual-boot-windows.md`](docs/dual-boot-windows.md). As seções de dual
-boot abaixo ficam como histórico.
+(systemd-boot assinado), e o Secure Boot fica **sempre ligado** (chaves
+próprias + Microsoft), como exige o anti-cheat do Battlefield 6.
+
+**Papéis:** o NixOS é o sistema principal; o Windows é **descartável**
+(só jogos com anti-cheat e softwares fechados, nada importante salvo nele,
+BitLocker e Fast Startup desligados). Estado atual, como refazer do zero e
+como reinstalar só o Windows: [`docs/dual-boot-windows.md`](docs/dual-boot-windows.md).
+As seções de dual boot abaixo ficam como histórico.
 
 ### Firmware: a BIOS reescreve a BootOrder
 

@@ -9,40 +9,51 @@ seções *Estado atual*, *Firmware: a BIOS reescreve a BootOrder* e
 > **Para o Claude numa sessão nova:** leia este arquivo inteiro e o
 > README antes de agir. Os comandos que precisam de root o usuário roda
 > com `! pkexec $(command -v <cmd>) ...`, porque `sudo` sem TTY falha.
-> Para aplicar a config, use `nixos build` (= `nixos-rebuild switch
-> --flake ~/Git/dotenv#nixos`), nunca o `nixos-rebuild` direto.
+> Para aplicar a config, o usuário roda `nixos build` num terminal próprio
+> (= `nixos-rebuild switch --flake ~/Git/dotenv#nixos`); daqui, use
+> `! pkexec $(command -v nixos-rebuild) switch --flake /home/kanagawamarcos/Git/dotenv#nixos`.
 
-## Estado atual (2026-11-17): dual boot funcionando ✅, Secure Boot ligado ✅
+## Objetivo e princípios
 
-Seções 0–4 já foram executadas. Em seguida o GRUB foi trocado por
-**Lanzaboote** (systemd-boot assinado), para permitir Secure Boot, que o
-anti-cheat do Battlefield 6 exige no Windows. Seção 6. O que vale **hoje**:
+- **O NixOS é o sistema principal.** Tudo que importa vive nele e é
+  declarado neste repositório. O bootloader é dele (Lanzaboote).
+- **O Windows é descartável.** Serve só para jogos com anti-cheat
+  (Battlefield 6/Javelin, que exige Secure Boot + TPM 2.0) e softwares
+  fechados. **Nada importante é salvo nele**, então pode ser apagado e
+  reinstalado sem backup. Consequências práticas:
+  - BitLocker **desligado** (não há o que proteger, e ele só traz risco
+    de pedir chave de recuperação a cada mudança no boot).
+  - Fast Startup **desligado** (dual boot).
+  - Reinstalar o Windows é um procedimento normal: veja *Reinstalar só o
+    Windows*, logo abaixo.
+- **O Secure Boot fica sempre ligado**, com chaves próprias + Microsoft.
+  Os dois sistemas bootam com ele ligado. Só se desliga temporariamente
+  para bootar o pen drive (Ventoy/ISO do NixOS não são assinados para
+  estas chaves).
+
+## Estado atual (2026-11-17): dual boot ✅, Secure Boot ligado ✅
 
 | | Disco "NixOS" | Disco "Windows" (ex-`storage`) |
 |---|---|---|
 | Serial | `C1D307021B0901178259` | `TPBF2007240030400210` |
-| Partições | ESP vfat `4587-D4ED` (`/boot`) + ext4 raiz | `Microsoft reserved` 16M + NTFS (sem ESP) |
+| Partições | ESP vfat 1G `4587-D4ED` (`/boot`) + ext4 raiz | `Microsoft reserved` 16M + NTFS (sem ESP) |
 | Bootloaders na ESP | systemd-boot assinado (Lanzaboote) em `\EFI\BOOT\BOOTX64.EFI` **e** Windows em `\EFI\Microsoft\Boot\bootmgfw.efi` | — |
 | Raiz | ext4 UUID `aa310bed-f9ca-4925-86be-78077712946a` | NTFS UUID `226A1DC16A1D9321` |
 
-- **A ESP do NixOS é compartilhada com o Windows** (o disco do NixOS
-  estava visível na instalação). Detalhes e consequências na seção
-  *Estado real após a instalação*, no fim. **Não reformate essa ESP sem
-  antes salvar o `\EFI\Microsoft\`.**
-- O systemd-boot lista o Windows **sozinho**: ele detecta o
-  `\EFI\Microsoft\Boot\bootmgfw.efi` na mesma ESP. Não há os-prober.
-  O menu fica 10 s na tela e o editor de cmdline está desligado
+- **A ESP do NixOS é compartilhada com o Windows.** É o layout testado
+  e é o que permite o systemd-boot listar o Windows sozinho, sem
+  os-prober. Menu: 10 s, editor de cmdline desligado
   (`configuration.nix`, blocos `boot.loader` e `boot.lanzaboote`).
-- `time.hardwareClockInLocalTime = true` já está na config.
-- ✅ No Windows, o Fast Startup e o BitLocker estão **desligados**
-  (conferido em 2026-11-17). Se um dia ligar o BitLocker, leia a seção 2,
-  passo 4, antes.
-- Secure Boot: veja o checklist da seção 6.
+  **Não reformate essa ESP sem antes salvar o `\EFI\Microsoft\`.**
+- Secure Boot: `bootctl status` → `Secure Boot: enabled (user)`;
+  `sbctl status` → `Vendor Keys: microsoft`. Chaves em `/var/lib/sbctl`
+  (**fora do Git**). Driver NVIDIA ok com Secure Boot.
+- No Windows: Fast Startup e BitLocker **desligados** (conferido).
+- Relógio: `time.hardwareClockInLocalTime = true` na config.
 - O `/mnt/storage` não existe mais. A partição `Microsoft reserved`
   ainda carrega o UUID ext4 antigo `4a99c463-...`: **nunca monte esse UUID**.
-
-O plano original (refazer do zero) previa **uma ESP por disco**, que é
-o ideal. As seções abaixo descrevem esse plano.
+- Pendências: passos 10–12 do checklist da seção 6 (conferir o
+  `msinfo32`, testar o BF6 e limpar os restos do GRUB).
 
 > 🚨 Os nomes `nvme0n1` e `nvme1n1` **trocam entre boots**. Sempre
 > identifique os discos por serial ou UUID:
@@ -51,15 +62,83 @@ o ideal. As seções abaixo descrevem esse plano.
 > lsblk -no PKNAME $(findmnt -no SOURCE /)   # disco do NixOS neste boot
 > ```
 
+## Refazer tudo do zero (ordem recomendada)
+
+Para uma máquina limpa, ou depois de perder o disco do NixOS. Cada passo
+aponta para a seção com os detalhes. Os passos 4–7 foram feitos de
+verdade em 2026-11-17. O passo 3 com Lanzaboote desde a instalação é a
+adaptação recomendada, **ainda não testada** (na época o NixOS já estava
+instalado com GRUB).
+
+1. **Pen drive** com Ventoy + ISO do NixOS + ISO do Windows (seção 1).
+2. **BIOS** (caminho exato na seção 6, box *BIOS da Biostar B550GTA*):
+   Secure Boot **Disabled**, CSM **Disabled**, TPM (Security Device
+   Support) **Enabled**. Se houver chaves antigas: Security → Secure Boot →
+   Key Management → **Reset To Setup Mode**.
+3. **Instalar o NixOS** no disco `C1D307021B0901178259`, seguindo o README
+   (*Instalação em UEFI*): GPT, ESP vfat de **1G** em `/boot`, ext4 na raiz.
+   Como a config usa Lanzaboote, **as chaves precisam existir antes do
+   `nixos-install`**. No live, depois de montar em `/mnt` (⚠️ não testado):
+   ```bash
+   sudo mkdir -p /mnt/var/lib/sbctl /var/lib/sbctl
+   sudo mount --bind /mnt/var/lib/sbctl /var/lib/sbctl
+   sudo nix --extra-experimental-features 'nix-command flakes' \
+     shell nixpkgs#sbctl -c sbctl create-keys    # grava em /mnt/var/lib/sbctl
+   git clone <este repo> /mnt/home/kanagawamarcos/Git/dotenv
+   # Ajuste os UUIDs do hardware-configuration.nix (nixos-generate-config).
+   sudo nixos-install --flake /mnt/home/kanagawamarcos/Git/dotenv#nixos
+   ```
+   Alternativa, se der problema: instalar com a config mínima do README
+   (sem Lanzaboote), bootar, rodar `sbctl create-keys` e só então trocar
+   para a config deste repo com `nixos build` (foi o caminho usado em
+   2026-11-17, partindo do GRUB).
+4. **Instalar o Windows** no outro disco, `TPBF2007240030400210`, com o
+   **disco do NixOS visível** (seção 2). O instalador reaproveita a ESP do
+   NixOS e o systemd-boot passa a listar o Windows sozinho.
+5. **Voltar ao NixOS** pelo menu (seção 3) e conferir
+   `! pkexec $(command -v sbctl) verify`. Se o `BOOTX64.EFI` tiver sido
+   trocado pelo Windows, rode `nixos build`. O Lanzaboote reinstala o
+   systemd-boot quando o arquivo não é assinado pelas nossas chaves.
+6. **Registrar as chaves e ligar o Secure Boot**: seção 6, passos 6–9
+   (`sbctl enroll-keys --microsoft`, depois Secure Boot **Enabled** na BIOS).
+7. **No Windows**: Fast Startup e BitLocker desligados (seção 2, passo 4);
+   `msinfo32` com a inicialização segura *Ativada*; testar o jogo
+   (seção 6, passos 10–11).
+
+## Reinstalar só o Windows
+
+O Windows não guarda nada importante, então é só apagar e reinstalar:
+
+1. BIOS: Security → Secure Boot → **Disabled** (as chaves continuam
+   registradas; só é preciso para o pen drive bootar).
+2. F11 → pen drive → Ventoy → Windows. No instalador, apague **só** as
+   partições do disco `TPBF2007240030400210` (Microsoft reserved + NTFS) e
+   instale no espaço livre. ⚠️ **Não apague nada do outro disco**: a ESP
+   de 1G dele é a do NixOS (e também a do Windows).
+3. O instalador recria `\EFI\Microsoft\` na ESP do NixOS. Em 2026-11-17
+   ele **não** mexeu no `\EFI\BOOT\BOOTX64.EFI`. Se o PC passar a ir
+   direto para o Windows, siga a seção 5.
+4. No NixOS: `! pkexec $(command -v sbctl) verify`. Se algo do NixOS
+   aparecer como não assinado, rode `nixos build`.
+5. BIOS: Secure Boot → **Enabled**. Confira no NixOS com `bootctl status`.
+6. No Windows: Fast Startup off, BitLocker off (seção 2, passo 4).
+
+## Histórico: como foi feito em 2026-11-17
+
+As seções 0–5 abaixo registram o caminho percorrido (Ventoy → Windows →
+GRUB + os-prober → Lanzaboote). Onde o plano original divergiu do que
+deu certo, o texto diz qual vale. A seção 6 (Secure Boot) é a referência
+atual do bootloader.
+
 ## 0. Antes de começar
 
-- [ ] **Backup do disco de destino.** O instalador do Windows apaga o
-      que estiver nele.
+- [ ] Nada a salvar no disco do Windows (ele é descartável). Se o disco
+      de destino tiver outra coisa, faça backup: o instalador apaga tudo.
 - [ ] Anote o serial do disco do NixOS (tabela acima) para reconhecê-lo
       na BIOS ou na etiqueta.
-- [ ] Secure Boot **desligado** (estado atual: `bootctl status` →
-      `Secure Boot: disabled`). O Win11 exige UEFI + TPM 2.0, mas não
-      exige Secure Boot.
+- [ ] Secure Boot **desligado** durante a instalação, para o pen drive
+      bootar. O Win11 exige UEFI + TPM 2.0, mas o instalador não exige
+      Secure Boot.
 
 ## 1. Pen drive com Ventoy (Windows + NixOS)
 
@@ -114,24 +193,34 @@ Pontos do Ventoy:
 
 ## 2. Instalar o Windows
 
-1. **Desative o disco do NixOS** na BIOS ou desconecte-o fisicamente
-   (confira pelo serial `C1D307021B0901178259`). É o passo mais
-   importante: o instalador do Windows grava o bootloader dele em
-   qualquer ESP que encontrar, e esta placa sempre boota
-   `\EFI\BOOT\BOOTX64.EFI`, que é justamente onde mora o bootloader do NixOS.
+1. **Decida o layout da ESP:**
+   - **A, ESP compartilhada (recomendado, é o que está em uso):** deixe
+     o disco do NixOS **visível**. O instalador grava o bootloader do
+     Windows em `\EFI\Microsoft\` da ESP do NixOS, e o systemd-boot do
+     Lanzaboote lista o Windows sozinho. Risco: uma instalação ou
+     atualização grande do Windows pode sobrescrever o
+     `\EFI\BOOT\BOOTX64.EFI`. Isso não aconteceu em 2026-11-17, e a
+     correção está na seção 5.
+   - **B, uma ESP por disco:** **desative o disco do NixOS** na BIOS ou
+     desconecte-o (serial `C1D307021B0901178259`) antes do instalador.
+     Os sistemas ficam independentes, mas o systemd-boot **não** enxerga
+     ESPs de outros discos: o Windows só boota pelo F11 (ou exigiria uma
+     entrada com `edk2-uefi-shell`). Era o plano original; não foi testado
+     com o Lanzaboote.
 2. Boote pelo pen drive (**F11** = menu de boot da placa) → Ventoy →
    Windows.
-3. Instale no único disco visível (serial `TPBF2007240030400210`). Apague
-   as partições dele e deixe o instalador criar as dele (ESP, MSR, NTFS,
-   recovery). **Se o instalador não criar uma ESP nesse disco, é porque
-   ele está enxergando a ESP do outro**: o disco do NixOS não foi
-   desativado de verdade (foi o que aconteceu em 2026-11-17).
+3. Instale no disco `TPBF2007240030400210`: apague **só** as partições
+   dele e deixe o instalador criar as dele. No layout A ele cria só MSR +
+   NTFS e usa a ESP do outro disco. No layout B ele cria ESP + MSR + NTFS
+   + recovery. Se no layout B ele **não** criar a ESP, é porque está
+   enxergando a do outro disco: o disco do NixOS não foi desativado de
+   verdade.
 4. Já no Windows, no primeiro boot (pós-instalação):
 
    | Item | Necessidade | Status |
    |---|---|---|
-   | Fast Startup desligado | **Obrigatório** em dual boot | ⬜ conferir |
-   | Chave do BitLocker guardada | **Obrigatório se a criptografia estiver ligada** | ⬜ conferir |
+   | Fast Startup desligado | **Obrigatório** em dual boot | ✅ desligado |
+   | BitLocker | **Manter desligado** (Windows descartável, nada a proteger) | ✅ desligado |
    | Relógio (RTC) | Nada a fazer: já tratado no NixOS | ✅ |
 
    - **Fast Startup.** Com ele ligado, "Desligar" no Windows na verdade
@@ -307,7 +396,7 @@ Windows. Com o GRUB isso era impossível, porque ele não é assinado.
 | 3 | Aplicar a config com Lanzaboote | `nixos build`, ou `! pkexec $(command -v nixos-rebuild) switch --flake ~/Git/dotenv#nixos`. A saída precisa ter `Installing /boot/EFI/BOOT/BOOTX64.EFI` | ✅ |
 | 4 | Conferir as assinaturas | `! pkexec $(command -v sbctl) verify`: `BOOTX64.EFI`, `systemd-bootx64.efi` e `EFI/Linux/*.efi` assinados | ✅ |
 | 5 | Reboot **com o Secure Boot desligado** e testar | menu do systemd-boot com as gerações + "Windows Boot Manager"; entrar nos dois | ✅ NixOS e Windows ok |
-| 6 | Placa em Setup Mode | `sbctl status` → `Setup Mode: ✗ Enabled`. Esta placa veio **sem chaves** (PK/KEK/db/dbx vazios). Se tiver chaves, na BIOS: Security → Secure Boot → Key Management → apagar a PK / "Reset To Setup Mode"; se existir "Factory Key Provision", deixe **Disabled** | ✅ já estava |
+| 6 | Placa em Setup Mode | `sbctl status` → `Setup Mode: ✗ Enabled`. Esta placa veio **sem chaves** (PK/KEK/db/dbx vazios). Se tiver chaves, na BIOS: Security → Secure Boot → Key Management → **Reset To Setup Mode** (a B550GTA não tem "Factory Key Provision"; em outras placas, deixe essa opção **Disabled**) | ✅ já estava |
 | 7 | Registrar as chaves | `! pkexec $(command -v sbctl) enroll-keys --microsoft` → `Enrolled keys to the EFI variables!`. ⚠️ **Nunca sem `--microsoft`**: o Windows e a GPU deixariam de bootar. Depois, `sbctl status` mostra `Vendor Keys: microsoft` e aparecem as variáveis `PK`/`KEK`/`db` em `/sys/firmware/efi/efivars`. O "Setup Mode" só muda depois de reiniciar | ✅ |
 | 8 | Ligar o Secure Boot | BIOS da B550GTA, caminho no box abaixo | ✅ |
 | 9 | Conferir no NixOS | `bootctl status` → `Secure Boot: enabled (user)`; `sbctl status` → `Setup Mode: ✓ Disabled`, `Secure Boot: ✓ Enabled`. Driver NVIDIA 595 carrega normal (o kernel do NixOS não ativa lockdown, então módulos fora da árvore não são barrados) | ✅ |
@@ -401,9 +490,11 @@ O que saiu diferente do plano:
   antigo `storage`** (UUID `4a99c463-...`, label `storage`). O
   `fileSystems."/mnt/storage"` foi removido do `configuration.nix` para
   não montá-la. Não reutilize esse UUID.
-- Se for refazer do zero e quiser discos 100% independentes: **desative
-  o NVMe do NixOS na BIOS de verdade** (ou desconecte) antes do
-  instalador. Confira no instalador do Windows que só um disco aparece.
+- Esse resultado "acidental" virou o layout recomendado (seção 2,
+  layout A), porque com o Lanzaboote/systemd-boot a ESP compartilhada é
+  o que faz o Windows aparecer no menu. Para discos 100% independentes
+  (layout B), desative o NVMe do NixOS na BIOS de verdade, ou desconecte,
+  e confira no instalador do Windows que só um disco aparece.
 
 ## Fontes consultadas (2026-11-17)
 
